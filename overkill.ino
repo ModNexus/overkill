@@ -379,6 +379,7 @@ void FE_SwapBuffers()
     }
 
     // Update encoders
+/*
     for ( uint8_t i = 0; i < NUM_ENCODERS; i++ )
     {
         if ( g_state.mns_led_encoder_backbuffer[ i ] != g_state.mns_led_encoder_frontbuffer[ i ] )
@@ -389,6 +390,7 @@ void FE_SwapBuffers()
             MIDI_cc( i + LIVID_ENCODER00, b, MIDI_USB );
         }
     }
+*/
 }
 
 void MIDI_noteOn( uint8_t n, uint8_t vel, uint8_t port )
@@ -897,8 +899,10 @@ void MnCheckSequence( unsigned long const kMicrosPerSixteenth )
             // Tracks 0-7 are TRIGGER
             if ( track < 8 )
             {
+/*
                 sprintf( dbg_buffer, "HIGH @ %ld\r\n", millis() );
                 DEBUG(dbg_buffer);
+*/
                 digitalWrite( PIN_TRIGGER0 + track, HIGH );
                 MnAddTimerEvent( TET_ANALOG_LOW, PIN_TRIGGER0 + track, 0, kNowMS + 20 );
             }
@@ -1155,6 +1159,9 @@ void MnReconnectUSB()
         delay(100);
     }
 
+    FE_Setup();
+    delay(10);
+
 #if 1
     DEBUG( "Sending CNTRL:R sysex\n" );
 
@@ -1164,11 +1171,19 @@ void MnReconnectUSB()
         uint8_t sysex_fill_mode[] =
         { LIVID_SYSEX, 
         0x1D,
-        0x7F, 0x07F, 0x7F, 0x7F,
+        0x1, 0x3, 0x7, 0x00,
         MIDI_EOX
         };
 
         SENDMIDI_USB(sysex_fill_mode);
+        delay(10);
+    }
+#else
+    {
+        uint8_t cmd[] = { 
+            MIDI_CC, 0x75,1
+        };
+        SENDMIDI_USB(cmd);
         delay(10);
     }
 #endif
@@ -1202,28 +1217,13 @@ void MnReconnectUSB()
     }
 #endif
 
-    // Initial encoder position
-#if 1
-    for ( int i = 0; i < 12; i++ )
-    {
-        uint8_t cmd[] = { 
-            MIDI_CC, 0x30+i, 1 + i * 11
-        };
-        SENDMIDI_USB(cmd);
-        delay(10);
-    }
-#endif
-
 #endif
 
     // Clear backbuffers
     memset( &g_state.mns_led_button_backbuffer, 0, sizeof( g_state.mns_led_button_backbuffer ) );
     memset( &g_state.mns_led_encoder_backbuffer, 0, sizeof( g_state.mns_led_encoder_backbuffer ) );
 
-    FE_Setup();
-
     g_usb_connected = 1;
-    DEBUG("USB initialization complete\n" );
 }
 
 void MnCheckUSB()
@@ -1300,8 +1300,10 @@ void MnFireTimerEvent( uint8_t const kIndex )
         MIDI_noteOff( kEvent.te_param0, 0, MIDI_EXT );
         break;
     case TET_ANALOG_LOW:
+/*
         sprintf( dbg_buffer, "LOW %d @ %ld\n", (int)kEvent.te_param0, millis() );
         DEBUG( dbg_buffer );
+*/
         digitalWrite( kEvent.te_param0, LOW );
         break;
     default:
