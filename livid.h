@@ -71,6 +71,8 @@
 #define LIVID_ENCODER22 56
 #define LIVID_ENCODER23 59
 
+#define LIVID_NUM_ENCODERS       12
+
 // Color values
 #define LIVID_COLOR_OFF 0
 #define LIVID_COLOR_1   1
