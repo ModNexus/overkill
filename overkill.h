@@ -19,8 +19,9 @@
 #define PIN_D8    8   // START SEQ
 #define PIN_D9    9   // STOP SEQ
 #define PIN_D10  10   // RESET SEQ
-#define PIN_D11  11   // CLK IN
-#define PIN_D12  12   // CLK OUT
+
+#define PIN_CLKIN  11   // CLK IN
+#define PIN_D12    12   // CLK OUT
 
 #define PIN_LED 13    // LED
 

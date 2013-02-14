@@ -16,6 +16,7 @@
 #include "overkill.h"
 
 char  dbg_buffer[ 128 ];
+bool  g_sysex_received;
 
 USB   Usb;
 MIDI  Midi(&Usb);
@@ -127,6 +128,51 @@ struct LividCNTRLR
             }
         }
     }
+
+
+    uint8_t trackToPad( uint8_t const kTrack )
+    {
+        switch ( kTrack )
+        {
+        case 0: return LIVID_PAD00;
+        case 1: return LIVID_PAD01;
+        case 2: return LIVID_PAD02;
+        case 3: return LIVID_PAD03;
+        case 4: return LIVID_PAD10;
+        case 5: return LIVID_PAD11;
+        case 6: return LIVID_PAD12;
+        case 7: return LIVID_PAD13;
+        case 8: return LIVID_PAD20;
+        case 9: return LIVID_PAD21;
+        case 10: return LIVID_PAD22;
+        case 11: return LIVID_PAD23;
+        case 12: return LIVID_PAD30;
+        case 13: return LIVID_PAD31;
+        case 14: return LIVID_PAD32;
+        case 15: return LIVID_PAD33;
+        }
+        return 0;
+    }
+
+    int8_t faderIndexFromCC( uint8_t const kCC )
+    {
+        switch ( kCC )
+        {
+        case LIVID_FADER0: return 0; break;
+        case LIVID_FADER1: return 1; break;
+        case LIVID_FADER2: return 2; break;
+        case LIVID_FADER3: return 3; break;
+        case LIVID_FADER4: return 4; break;
+        case LIVID_FADER5: return 5; break;
+        case LIVID_FADER6: return 6; break;
+        case LIVID_FADER7: return 7; break;
+        default:
+            break;
+        }
+        return -1;
+    }
+
+
 
 };
 LividCNTRLR g_device;
@@ -369,51 +415,6 @@ void MnSaveState()
 {
     // Save patterns to SD
 }
-
-uint8_t MnTrackToPad( uint8_t const kTrack )
-{
-    switch ( kTrack )
-    {
-    case 0: return LIVID_PAD00;
-    case 1: return LIVID_PAD01;
-    case 2: return LIVID_PAD02;
-    case 3: return LIVID_PAD03;
-    case 4: return LIVID_PAD10;
-    case 5: return LIVID_PAD11;
-    case 6: return LIVID_PAD12;
-    case 7: return LIVID_PAD13;
-    case 8: return LIVID_PAD20;
-    case 9: return LIVID_PAD21;
-    case 10: return LIVID_PAD22;
-    case 11: return LIVID_PAD23;
-    case 12: return LIVID_PAD30;
-    case 13: return LIVID_PAD31;
-    case 14: return LIVID_PAD32;
-    case 15: return LIVID_PAD33;
-    }
-    return 0;
-}
-
-int8_t MnFaderIndexFromCC( uint8_t const kCC )
-{
-    int8_t index = -1;
-
-    switch ( kCC )
-    {
-    case LIVID_FADER0: index = 0; break;
-    case LIVID_FADER1: index = 1; break;
-    case LIVID_FADER2: index = 2; break;
-    case LIVID_FADER3: index = 3; break;
-    case LIVID_FADER4: index = 4; break;
-    case LIVID_FADER5: index = 5; break;
-    case LIVID_FADER6: index = 6; break;
-    case LIVID_FADER7: index = 7; break;
-    default:
-        break;
-    }
-    return index;
-}
-
 void MnFaderOut( uint8_t const kWhich, uint8_t const kValue )
 {
     // TODO: send out analog data via the DAC
@@ -505,16 +506,16 @@ void MnUpdateState( unsigned long kMillis )
             {
                 if ( g_state.isTrackStepEnabled( i, g_state.getStep() ) )
                 {
-                    g_device.setButtonLED( MnTrackToPad( i ), LIVID_COLOR_MAGENTA );
+                    g_device.setButtonLED( g_device.trackToPad( i ), LIVID_COLOR_MAGENTA );
                 }
                 else
                 {
-                    g_state.setButtonLED( MnTrackToPad( i ), LIVID_COLOR_WHITE );
+                    g_device.setButtonLED( g_device.trackToPad( i ), LIVID_COLOR_WHITE );
                 }
             }
         }
 
-        FE_SetButtonLED( MnTrackToPad( g_state.mns_active_track ), LIVID_COLOR_BLUE );
+        g_device.setButtonLED( g_device.trackToPad( g_state.mns_active_track ), LIVID_COLOR_BLUE );
     }
     else if ( g_state.mns_mode == MODE_MUTE )
     {
@@ -545,7 +546,7 @@ void MnUpdateState( unsigned long kMillis )
                 }
             }
 
-            FE_SetButtonLED( MnTrackToPad( i ), color );
+            g_device.setButtonLED( g_device.trackToPad( i ), color );
         }
     }
 
@@ -559,9 +560,9 @@ void MnUpdateState( unsigned long kMillis )
         else if ( g_state.mns_mode != MODE_TRACK )
             color = LIVID_COLOR_MAGENTA;
 
-        if ( g_state.isTrackStepAudible(g_state.mns_active_track, step ))
+        if ( g_state.isTrackStepEnabled( g_state.mns_active_track, step ) )
         {
-            FE_SetButtonLED( LIVID_SEQ_ROW1 + step, color );
+            g_device.setButtonLED( LIVID_SEQ_ROW1 + step, color );
         }
     }
 }
@@ -693,6 +694,12 @@ void MnHandleMessage( uint8_t const _msg[3] )
     {
     }
 
+    // Sysex?
+    if ( msg[ 0 ] == MIDI_SYSEX )
+    {
+        g_sysex_received = 1;
+    }
+
     // BPM dial
     if ( msg[ 0 ] == MIDI_CC && msg[ 1 ] == LIVID_ROTARY00 )
     {
@@ -707,7 +714,7 @@ void MnHandleMessage( uint8_t const _msg[3] )
 
     if ( msg[ 0 ] == MIDI_CC )
     {
-        int8_t const kFaderIndex = MnFaderIndexFromCC( msg[ 1 ] );
+        int8_t const kFaderIndex = g_device.faderIndexFromCC( msg[ 1 ] );
 
         if ( msg[ 1 ] == LIVID_ENCODER00 )
         {
@@ -813,20 +820,82 @@ void MnHandleMessage( uint8_t const _msg[3] )
     }
 }
 
+void WaitForAck()
+{
+    g_sysex_received = 0;
+    DEBUG("Waiting for ack");
+
+    for ( int i = 0; i < 100; i++ )
+    {
+        Usb.Task();
+        delay(10);
+        DEBUG(".");
+    }
+    DEBUG("\n");
+}
+
 void MnInitCNTRLR()
 {
     DEBUG( "Sending CNTRL:R sysex\n" );
 
 #if 1
     // Factory reset
+    DEBUG( "Sending factory reset\n" );
     {
         uint8_t sysex_factory_reset[] = { 
-            LIVID_SYSEX, 06, 0xF7
+            LIVID_SYSEX, 0x06, MIDI_EOX
         };
         SENDMIDI_USB(sysex_factory_reset);
-        delay(10);
-    }
 
+        WaitForAck();
+    }
+#endif
+
+#if 1
+    // Disable MIDI merge
+    DEBUG( "Disabling MIDI merge\n" );
+    {
+        uint8_t sysex_factory_reset[] = { 
+            LIVID_SYSEX, 0x0D, 0x00, MIDI_EOX
+        };
+        SENDMIDI_USB(sysex_factory_reset);
+
+        WaitForAck();
+    }
+#endif
+
+
+    // Map analog inputs
+
+#if 0
+    {
+        uint8_t sysex_map_analog_inputs[] =
+        {
+            LIVID_SYSEX, 
+            0x0A,
+
+            0x01, 0x60, 0x01, 0x61, 0x01, 0x62, 0x01, 0x63,
+            0x01, 0x64, 0x01, 0x65, 0x01, 0x66, 0x01, 0x67,
+            0x01, 0x68, 0x01, 0x69, 0x01, 0x6A, 0x01, 0x6B,
+            0x01, 0x6C, 0x01, 0x6D, 0x01, 0x6E, 0x01, 0x6F,
+
+            0x01, 0x00, 0x01, 0x01, 0x01, 0x02, 0x01, 0x03,
+            0x01, 0x04, 0x01, 0x05, 0x01, 0x06, 0x01, 0x07,
+            0x01, 0x08, 0x01, 0x09, 0x01, 0x0A, 0x01, 0x0B,
+            0x01, 0x0C, 0x01, 0x0D, 0x01, 0x0E, 0x01, 0x0F,
+
+            MIDI_EOX
+        };
+
+        SENDMIDI_USB( sysex_map_analog_inputs );
+        delay(100);
+
+        WaitForAck();
+    }
+#endif
+
+#if 1
+    DEBUG("Setting encoders to fill mode\n" );
     // Set encoders to fill mode
     {
         uint8_t sysex_fill_mode[] =
@@ -837,12 +906,15 @@ void MnInitCNTRLR()
         };
 
         SENDMIDI_USB(sysex_fill_mode);
-        delay(10);
+        delay(100);
+
+//        WaitForAck();
     }
 #endif
 
     // Set encoding mode to relative (inc/dec)
 #if 1
+    DEBUG("Setting encoders to relative mode\n" );
     {
         uint8_t sysex_encosion_mode[] =
         { LIVID_SYSEX, 
@@ -851,30 +923,44 @@ void MnInitCNTRLR()
         MIDI_EOX
         };
 
-       SENDMIDI_USB(sysex_encosion_mode);
-        delay(10);
+        SENDMIDI_USB(sysex_encosion_mode);
+        delay(100);
+
+        WaitForAck();
     }
 #endif
 
     // Local encoder off
 #if 1
     {
+        DEBUG("Disabling encoder local off\n" );     
         uint8_t sysex_local_off_mode[] =
         { LIVID_SYSEX, 
         0x20, // Local ring control
         0x3,  // 0 = enabled
         MIDI_EOX
         };
+
         SENDMIDI_USB(sysex_local_off_mode);
-        delay(10);
+        delay(100);
+
+        WaitForAck();
     }
 #endif
+
 }
 
 void MnReconnectUSB()
 {
+    if ( Usb.getUsbTaskState() == USB_STATE_RUNNING )
+        return;
+
     DEBUG("Reconnecting USB...\n" );
     Serial.begin(31500);
+
+    //workaround for non UHS2.0 Shield
+    pinMode(7,OUTPUT);
+    digitalWrite(7,HIGH);
 
     DEBUG("USB.Init()..." );
     if (Usb.Init() == -1) 
@@ -906,17 +992,17 @@ void MnReconnectUSB()
 
     delay(10);
 
+    g_state.mns_usb_connected = 1;
     MnInitCNTRLR();
 
     // Clear back and front buffers to alternate values which will force an update
     // of all backbuffer values
-    memset( &g_state.mns_led_button_backbuffer, 0, sizeof( g_state.mns_led_button_backbuffer ) );
-    memset( &g_state.mns_led_encoder_backbuffer, 0, sizeof( g_state.mns_led_encoder_backbuffer ) );
-    memset( &g_state.mns_led_button_frontbuffer, 0x1, sizeof( g_state.mns_led_button_frontbuffer ) );
-    memset( &g_state.mns_led_encoder_frontbuffer, 0x1, sizeof( g_state.mns_led_encoder_frontbuffer ) );
+    memset( &g_device.lc_led_button_backbuffer, 0, sizeof( g_device.lc_led_button_backbuffer ) );
+    memset( &g_device.lc_led_encoder_backbuffer, 0, sizeof( g_device.lc_led_encoder_backbuffer ) );
+    memset( &g_device.lc_led_button_frontbuffer, 0x1, sizeof( g_device.lc_led_button_frontbuffer ) );
+    memset( &g_device.lc_led_encoder_frontbuffer, 0x1, sizeof( g_device.lc_led_encoder_frontbuffer ) );
 
     DEBUG("USB reconnection finished\n" );
-    g_state.mns_usb_connected = 1;
 }
 
 void MnCheckUSB()
@@ -937,14 +1023,6 @@ void MnCheckUSB()
         byte msgs[ 64 ];
         memset( msgs, 0, sizeof( msgs ) );
         uint16_t bytes_received = 0;
-
-/*
-        if ( kNow - s_last_check_time > 1000 )
-        {
-            sprintf( dbg_buffer, "%ld: USB running\n", kNow );
-            DEBUG( dbg_buffer );
-        }
-*/
 
 //        while ( Midi.RcvData(&bytes_received,msgs) == 0 )
         if ( ( bytes_received = Midi.RcvData(msgs) ) != 0 )
@@ -969,7 +1047,7 @@ void MnCheckUSB()
         if ( g_state.mns_usb_connected )
         {
             DEBUG("USB connection lost!\n" );
-            g_usb_connected = 0;
+            g_state.mns_usb_connected = 0;
         }
 
         if ( kNow - s_last_check_time > 1000 )
@@ -1066,5 +1144,5 @@ void loop()
 
     MnCheckUSB();
 
-    FE_SwapBuffers();
+    g_device.swapBuffers();
 }
