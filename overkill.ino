@@ -1,12 +1,12 @@
 // Schematics:
 //
-// 
-// TODO: gate length control
+// TODO: clear all
 // TODO: CV outputs (manual)
+// TODO: CV outputs (sequenced)
 // TODO: pattern select
 // TODO: analog clock input
+// TODO: selectable midi channel
 // TODO: MIDI IN (for clocking)?
-// TODO: CV outputs (sequenced)
 // TODO: SD card
 // TODO: LCD support
 #include <avr/pgmspace.h>
@@ -30,12 +30,12 @@ void MIDI_noteOn( uint8_t n, uint8_t vel, uint8_t port )
 
     if ( port == MIDI_USB )
     {
-        sprintf( dbg_buffer, "[%08lud] Note on  0x%02x,0x%02x\n", millis(), (int)n,(int)vel );
-        DEBUG( dbg_buffer );
         SENDMIDI_USB(buffer);
     }
     else
     {
+        sprintf( dbg_buffer, "[%08lud] Note on  0x%02x,0x%02x\n", millis(), (int)n,(int)vel );
+        DEBUG( dbg_buffer );
         SENDMIDI_MIDI(buffer,sizeof(buffer));
     }
 }
@@ -49,12 +49,12 @@ void MIDI_cc( uint8_t n, uint8_t val, uint8_t port )
 
     if ( port == MIDI_USB )
     {
-        sprintf( dbg_buffer, "[%08lud] CC 0x%x 0x%x\n", millis(), (int)n,(int)val );
-        DEBUG( dbg_buffer );
         SENDMIDI_USB(buffer);
     }
     else
     {
+        sprintf( dbg_buffer, "[%08lud] CC 0x%x 0x%x\n", millis(), (int)n,(int)val );
+        DEBUG( dbg_buffer );
         SENDMIDI_MIDI(buffer,sizeof(buffer));
     }
 }
@@ -66,12 +66,12 @@ void MIDI_noteOff( uint8_t n, uint8_t vel, uint8_t port )
     };
     if ( port == MIDI_USB )
     {
-    sprintf( dbg_buffer, "[%08lud] Note off 0x%02x,0x%02x\n", millis(), (int)n,(int)vel );
-    DEBUG( dbg_buffer );
         SENDMIDI_USB(buffer);
     }
     else
     {
+        sprintf( dbg_buffer, "[%08lud] Note off 0x%02x,0x%02x\n", millis(), (int)n,(int)vel );
+        DEBUG( dbg_buffer );
         SENDMIDI_MIDI(buffer,sizeof(buffer));
     }
 }
@@ -83,6 +83,15 @@ struct LividCNTRLR
     uint8_t lc_led_button_frontbuffer[ 60 ];  // These are what we're currently showing
     uint8_t lc_led_encoder_backbuffer[ LIVID_NUM_ENCODERS ];  // These are what we update
     uint8_t lc_led_encoder_frontbuffer[ LIVID_NUM_ENCODERS ]; // These are what we're currently showing
+
+    void resetBuffers( void )
+    {
+        DEBUG("Resetting buffers\n");
+        memset( &lc_led_button_backbuffer,    0, sizeof( lc_led_button_backbuffer ) );
+        memset( &lc_led_encoder_backbuffer,   0, sizeof( lc_led_encoder_backbuffer ) );
+        memset( &lc_led_button_frontbuffer, 0x1, sizeof( lc_led_button_frontbuffer ) );
+        memset( &lc_led_encoder_frontbuffer, 0x1, sizeof( lc_led_encoder_frontbuffer ) );
+    }
 
     void clearScreen( void )
     {
@@ -171,9 +180,6 @@ struct LividCNTRLR
         }
         return -1;
     }
-
-
-
 };
 LividCNTRLR g_device;
 
@@ -214,13 +220,20 @@ struct MnBitSet16
 struct MnTrack
 {
     bool            mnt_track_muted;
-    uint8_t         mnt_step_notes[ NUM_STEPS ];
+    
+    // gate durations are 32nd notes, so 128 * 1/32 = 4 whole notes max
+    uint8_t         mnt_step_gate[ NUM_STEPS ];
+
+    uint8_t         mnt_step_cv0[ NUM_STEPS ];
+    uint8_t         mnt_step_cv1[ NUM_STEPS ];
+    uint8_t         mnt_step_cv2[ NUM_STEPS ];
 
     MnBitSet16      mnt_step_enabled;
     MnBitSet16      mnt_step_accent;
 
     bool isStepEnabled( uint8_t const kStep )
     {
+
         return mnt_step_enabled.isBitSet( kStep );
     }
     void enableStep( uint8_t const kStep, bool const kEnable )
@@ -272,8 +285,7 @@ struct MnState
         e->te_param1 = kParam1;
     }
 
-
-    uint8_t       mns_button_state[ 8 ]; // Assumes up to 64 buttons (CNTRL:R has almost that many)
+    uint8_t mns_button_state[ 8 ]; // Assumes up to 64 buttons (CNTRL:R has almost that many)
 
     uint8_t getButtonState( uint8_t const kControlNumber )
     {
@@ -311,7 +323,22 @@ struct MnState
     uint8_t       mns_bpm;
     uint8_t       mns_active_track;
 
-    int8_t        mns_edit_step; // Step currently being edited, -1 if none
+    uint8_t       mns_edit_gate;
+    uint8_t       mns_edit_cv0, mns_edit_cv1, mns_edit_cv2;
+    bool          mns_is_editing_step[ NUM_STEPS ]; // Is step being edited?
+    bool isEditingAnyStep( void )
+    {
+        for ( uint8_t i = 0; i < NUM_STEPS; i++ )
+        {
+            if ( isEditingStep( i ) )
+                return true;
+        }
+        return false;
+    }
+    bool isEditingStep( int8_t const kStep )
+    {
+        return mns_is_editing_step[ kStep ];
+    }
 
     unsigned int  mns_beat;
     unsigned long mns_last_beat_time;
@@ -335,14 +362,39 @@ struct MnState
     }
 
     // Returns value irrespective of mute
-    uint8_t getTrackNote( uint8_t const kTrack, uint8_t const kStep )
+    uint8_t getTrackGate( uint8_t const kTrack, uint8_t const kStep )
     {
-        return mns_tracks [ kTrack ].mnt_step_notes[ kStep ];
+        return mns_tracks [ kTrack ].mnt_step_gate[ kStep ];
     }
-    void setTrackNote( uint8_t const kTrack, uint8_t const kStep, uint8_t const kValue )
+    uint8_t getTrackCV0( uint8_t const kTrack, uint8_t const kStep )
     {
-        mns_tracks [ kTrack ].mnt_step_notes[ kStep ] = kValue;
+        return mns_tracks [ kTrack ].mnt_step_cv0[ kStep ];
     }
+    uint8_t getTrackCV1( uint8_t const kTrack, uint8_t const kStep )
+    {
+        return mns_tracks [ kTrack ].mnt_step_cv1[ kStep ];
+    }
+    uint8_t getTrackCV2( uint8_t const kTrack, uint8_t const kStep )
+    {
+        return mns_tracks [ kTrack ].mnt_step_cv2[ kStep ];
+    }
+    void setTrackCV0( uint8_t const kTrack, uint8_t const kStep, uint8_t const kValue )
+    {
+        mns_tracks[ kTrack ].mnt_step_cv0[ kStep ] = kValue;
+    }
+    void setTrackCV1( uint8_t const kTrack, uint8_t const kStep, uint8_t const kValue )
+    {
+        mns_tracks[ kTrack ].mnt_step_cv1[ kStep ] = kValue;
+    }
+    void setTrackCV2( uint8_t const kTrack, uint8_t const kStep, uint8_t const kValue )
+    {
+        mns_tracks[ kTrack ].mnt_step_cv2[ kStep ] = kValue;
+    }
+    void setTrackGate( uint8_t const kTrack, uint8_t const kStep, uint8_t const kValue )
+    {
+        mns_tracks[ kTrack ].mnt_step_gate[ kStep ] = kValue;
+    }
+
     bool isTrackStepEnabled( uint8_t const kTrack, uint8_t const kStep )
     {
         return mns_tracks[ kTrack ].isStepEnabled( kStep );
@@ -359,7 +411,6 @@ struct MnState
     // Set sane default track values
     MnState()
     {
-        mns_edit_step = -1;
         mns_running = false;
     }
 };
@@ -393,22 +444,43 @@ MIDI_numBytesForCMD( int cmd )
 void FE_SetActiveStep( uint8_t const kStep )
 {
     g_device.setButtonLED( kStep + LIVID_SEQ_ROW0, 1 );
-    g_device.setEncoderLED( LIVID_ENCODER00, (kStep+1)*7 );
+
+    g_device.setEncoderLED( LIVID_ENCODER00, g_state.getTrackGate( g_state.mns_active_track, kStep ) );
+    g_device.setEncoderLED( LIVID_ENCODER01, g_state.getTrackCV0( g_state.mns_active_track, kStep ) );
+    g_device.setEncoderLED( LIVID_ENCODER02, g_state.getTrackCV1( g_state.mns_active_track, kStep ) );
+    g_device.setEncoderLED( LIVID_ENCODER03, g_state.getTrackCV2( g_state.mns_active_track, kStep ) );
 }
 
 void MnLoadState()
 {
     g_state.mns_bpm = 120;
-/*
-    g_state.mns_tracks[ 0 ].enableStep( 0, true );
-    g_state.setTrackNote( 0, 0, 1 );
-    g_state.mns_tracks[ 0 ].enableStep( 4, true );
-    g_state.setTrackNote( 0, 4, 1 );
-    g_state.mns_tracks[ 0 ].enableStep( 8, true );
-    g_state.setTrackNote( 0, 8, 1 );
-    g_state.mns_tracks[ 0 ].enableStep( 12, true );
-    g_state.setTrackNote( 0, 12, 1 );
-*/
+
+    // Set default gate length for drum tracks to 
+    for ( uint8_t t = 0; t < NUM_TRIGGERS; t++ )
+    {
+        for ( uint8_t s = 0; s < NUM_STEPS; s++ )
+        {
+            g_state.setTrackGate( t, s, 1 ); // 1/32nd note
+        }
+    }
+
+    // Set default gate length for pitch tracks to 1/4 note
+    for ( uint8_t t = 8; t < NUM_TRACKS; t++ )
+    {
+        for ( uint8_t s = 0; s < NUM_STEPS; s++ )
+        {
+            g_state.setTrackGate( t, s, 8 ); // 1/4 note
+        }
+    }
+
+    // Set default pitch
+    for ( uint8_t t = 8; t < NUM_TRACKS; t++ )
+    {
+        for ( uint8_t s = 0; s < NUM_STEPS; s++ )
+        {
+            g_state.setTrackCV0( t, s, 0x3C ); // 1/4 note
+        }
+    }
 }
 
 void MnSaveState()
@@ -472,12 +544,25 @@ void MnUpdateState( unsigned long kMillis )
     }
 
     // Update encoder
-    if ( g_state.mns_edit_step >= 0 )
+    if ( g_state.isEditingAnyStep() )
     {
-        g_device.setEncoderLED( LIVID_ENCODER00, g_state.getTrackNote( g_state.mns_active_track, g_state.mns_edit_step ) );
-//        sprintf( dbg_buffer, "setting encoder: 0x%x\n", (int) g_state.getTrackNote( g_state.mns_active_track, g_state.mns_edit_step ) );
-//        DEBUG(dbg_buffer);
+        g_device.setButtonLED( LIVID_ENCODER00, 1 );
+        g_device.setButtonLED( LIVID_ENCODER01, 1 );
+        g_device.setButtonLED( LIVID_ENCODER02, 1 );
+        g_device.setButtonLED( LIVID_ENCODER03, 1 );
 
+        for ( int8_t step = 0; step < NUM_STEPS; step++ )
+        {
+            if ( g_state.isEditingStep( step ) )
+            {
+                g_device.setButtonLED( LIVID_SEQ_ROW0 + step, LIVID_COLOR_MAGENTA );
+
+                g_device.setEncoderLED( LIVID_ENCODER00, g_state.mns_edit_gate );
+                g_device.setEncoderLED( LIVID_ENCODER01, g_state.mns_edit_cv0 );
+                g_device.setEncoderLED( LIVID_ENCODER02, g_state.mns_edit_cv1 );
+                g_device.setEncoderLED( LIVID_ENCODER03, g_state.mns_edit_cv2 );
+            }
+        }
     }
     else
     {
@@ -567,14 +652,16 @@ void MnUpdateState( unsigned long kMillis )
     }
 }
 
-void MnCheckSequence( unsigned long const kMicrosPerSixteenth )
+void MnCheckSequence( unsigned long const kMicrosPerThirtySecond )
 {
     if ( !g_state.mns_running )
        return;
 
     unsigned long const kNow = micros();
     unsigned long const kNowMS = millis();
-    
+    unsigned int kMillisPerThirtySecond = kMicrosPerThirtySecond / 1000;
+    unsigned int kMillisPerGate = ( kMillisPerThirtySecond );
+
     // If this is the first time, fill in the time and return.  This means
     // there will be a one beat delay between pressing play and actually playing
     if ( g_state.mns_last_beat_time == 0 )
@@ -584,7 +671,7 @@ void MnCheckSequence( unsigned long const kMicrosPerSixteenth )
     }
 
     long int const kDeltaTime = kNow - g_state.mns_last_beat_time;
-    if ( kDeltaTime < kMicrosPerSixteenth-20 )
+    if ( kDeltaTime < (kMicrosPerThirtySecond*2)-20 )
         return;
 
     {
@@ -604,22 +691,29 @@ void MnCheckSequence( unsigned long const kMicrosPerSixteenth )
             if ( !g_state.isTrackStepEnabled( track, kStep ) )
                 continue;
 
-            uint8_t const kNote = g_state.getTrackNote( track, kStep );
+            uint8_t const kGate = g_state.getTrackGate( track, kStep ); // 0 = off
+            uint8_t const kCV0  = g_state.getTrackCV0( track, kStep );
+            uint8_t const kCV1  = g_state.getTrackCV1( track, kStep );
+            uint8_t const kCV2  = g_state.getTrackCV2( track, kStep );
+
+            // 1 - 128 :: 1/8th beat to 16 beats, then divide by two so it's a 50% duty cycle
+            int kGateDurationMS = ( kGate * kMillisPerGate ) >> 1;
 
             // Tracks 0-7 are TRIGGER
             if ( track < 8 )
             {
-/*
-                sprintf( dbg_buffer, "HIGH @ %ld\r\n", millis() );
-                DEBUG(dbg_buffer);
-*/
                 digitalWrite( PIN_TRIGGER0 + track, HIGH );
-                g_state.addTimerEvent( TET_ANALOG_LOW, PIN_TRIGGER0 + track, 0, kNowMS + 20 );
+                g_state.addTimerEvent( TET_ANALOG_LOW, PIN_TRIGGER0 + track, 0, kNowMS +kGateDurationMS );
             }
             else
             {
-                MIDI_noteOn( kNote, 0x40, MIDI_EXT );
-                g_state.addTimerEvent( TET_MIDI_NOTE_OFF, kNote, 0, kNowMS + 5 );
+                if ( kGate )
+                {
+                    MIDI_noteOn( kCV0, 0x40, MIDI_EXT );
+                }
+                MIDI_cc( 14, kCV1, MIDI_EXT );
+                MIDI_cc( 15, kCV2, MIDI_EXT );
+                g_state.addTimerEvent( TET_MIDI_NOTE_OFF, kCV0, 0, kNowMS + kGateDurationMS );
             }
         }
 
@@ -649,24 +743,45 @@ void MnResetSequencer()
 
 }
 
-void MnPitchAdjust( int8_t const kAmount )
+void MnSetGate( int8_t const kValue )
 {
-    if ( g_state.mns_edit_step < 0 )
-        return;
-
-    int v = g_state.getTrackNote( g_state.mns_active_track, g_state.mns_edit_step );
-
-    v += kAmount;
-
-    if ( v > 0x7F ) 
-        v = 0x7F;
-    else if ( v < 1 )
-        v = 1;
-
-    sprintf( dbg_buffer, "pitch adjust: 0x%x (%d)\n", (int) v, (int) kAmount );
-    DEBUG(dbg_buffer);
-
-    g_state.mns_tracks[ g_state.mns_active_track ].mnt_step_notes[ g_state.mns_edit_step ] = (uint8_t)v;
+    for ( int8_t i = 0; i < NUM_STEPS; i++ )
+    {
+        if ( g_state.isEditingStep( i ) )
+        {
+            g_state.mns_tracks[ g_state.mns_active_track ].mnt_step_gate[ i ] = kValue;
+        }
+    }
+}
+void MnSetCV0( int8_t const kValue )
+{
+    for ( int8_t i = 0; i < NUM_STEPS; i++ )
+    {
+        if ( g_state.isEditingStep( i ) )
+        {
+            g_state.mns_tracks[ g_state.mns_active_track ].mnt_step_cv0[ i ] = kValue;
+        }
+    }
+}
+void MnSetCV1( int8_t const kValue )
+{
+    for ( int8_t i = 0; i < NUM_STEPS; i++ )
+    {
+        if ( g_state.isEditingStep( i ) )
+        {
+            g_state.mns_tracks[ g_state.mns_active_track ].mnt_step_cv1[ i ] = kValue;
+        }
+    }
+}
+void MnSetCV2( int8_t const kValue )
+{
+    for ( int8_t i = 0; i < NUM_STEPS; i++ )
+    {
+        if ( g_state.isEditingStep( i ) )
+        {
+            g_state.mns_tracks[ g_state.mns_active_track ].mnt_step_cv2[ i ] = kValue;
+        }
+    }
 }
 
 void MnHandleMessage( uint8_t const _msg[3] )
@@ -715,19 +830,23 @@ void MnHandleMessage( uint8_t const _msg[3] )
     if ( msg[ 0 ] == MIDI_CC )
     {
         int8_t const kFaderIndex = g_device.faderIndexFromCC( msg[ 1 ] );
+        bool const kIsEditing = g_state.isEditingAnyStep();
 
-        if ( msg[ 1 ] == LIVID_ENCODER00 )
+        if ( msg[ 1 ] == LIVID_ENCODER00 && kIsEditing )
         {
-            int8_t const kPitchScale = g_state.getButtonState( LIVID_ENCODER00 ) ? 12 : 1;
-
-            if ( msg[ 2 ] == 1 )
-            {
-                MnPitchAdjust( kPitchScale );
-            }
-            else
-            {
-                MnPitchAdjust( -kPitchScale );
-            }
+            MnSetGate( msg[ 2 ] );
+        }
+        else if ( msg[ 1 ] == LIVID_ENCODER01 && kIsEditing )
+        {
+            MnSetCV0( msg[ 2 ] );
+        }
+        else if ( msg[ 1 ] == LIVID_ENCODER02 && kIsEditing )
+        {
+            MnSetCV1( msg[ 2 ] );
+        }
+        else if ( msg[ 1 ] == LIVID_ENCODER03 && kIsEditing )
+        {
+            MnSetCV2( msg[ 2 ] );
         }
         else if ( kFaderIndex >= 0 )
         {
@@ -757,13 +876,17 @@ void MnHandleMessage( uint8_t const _msg[3] )
 
         if ( g_state.mns_mode == MODE_CONTROL )
         {
-            if ( msg[ 1 ] == LIVID_PAD00 && g_state.mns_mode == MODE_CONTROL )
+            if ( msg[ 1 ] == LIVID_PAD00 )
             {
                 g_state.mns_running = !g_state.mns_running;
             }
-            else if ( msg[ 1 ] == LIVID_PAD01 && g_state.mns_mode == MODE_CONTROL )
+            else if ( msg[ 1 ] == LIVID_PAD01 )
             {
                 MnResetSequencer();
+            }
+            else if ( msg[ 1 ] == LIVID_PAD20 )
+            {
+                g_device.resetBuffers();
             }
         }
         else if ( ( g_state.mns_mode == MODE_TRACK || g_state.mns_mode == MODE_MUTE ) && 
@@ -804,18 +927,17 @@ void MnHandleMessage( uint8_t const _msg[3] )
 
         if ( msg[ 1 ] >= LIVID_SEQ_ROW0 && msg[ 1 ] < LIVID_SEQ_ROW0 + NUM_STEPS )
         {
-            g_state.mns_edit_step = msg[ 1 ] - LIVID_SEQ_ROW0;
-            sprintf( dbg_buffer, "Edit step now %d\n", g_state.mns_edit_step );
-            DEBUG(dbg_buffer);
-        }
-    }
-    else if ( msg[ 0 ] == MIDI_NOTE_OFF )
-    {
-        if ( msg[ 1 ] >= LIVID_SEQ_ROW0 && msg[ 1 ] < LIVID_SEQ_ROW0 + NUM_STEPS )
-        {
-            g_state.mns_edit_step = -1;
-            sprintf( dbg_buffer, "Edit step off\n" );
-            DEBUG(dbg_buffer);
+            int8_t const kEditStep = msg[ 1 ] - LIVID_SEQ_ROW0;
+            g_state.mns_is_editing_step[ kEditStep ] = !g_state.mns_is_editing_step[ kEditStep ];
+
+            // If we just enabled it we need grab its values
+            if ( g_state.mns_is_editing_step[ kEditStep ] )
+            {
+                g_state.mns_edit_gate = g_state.getTrackGate( g_state.mns_active_track, kEditStep );
+                g_state.mns_edit_cv0 = g_state.getTrackCV0( g_state.mns_active_track, kEditStep );
+                g_state.mns_edit_cv1 = g_state.getTrackCV1( g_state.mns_active_track, kEditStep );
+                g_state.mns_edit_cv2 = g_state.getTrackCV1( g_state.mns_active_track, kEditStep );
+            }
         }
     }
 }
@@ -913,7 +1035,7 @@ void MnInitCNTRLR()
 #endif
 
     // Set encoding mode to relative (inc/dec)
-#if 1
+#if 0
     DEBUG("Setting encoders to relative mode\n" );
     {
         uint8_t sysex_encosion_mode[] =
@@ -931,7 +1053,7 @@ void MnInitCNTRLR()
 #endif
 
     // Local encoder off
-#if 1
+#if 0
     {
         DEBUG("Disabling encoder local off\n" );     
         uint8_t sysex_local_off_mode[] =
@@ -997,10 +1119,7 @@ void MnReconnectUSB()
 
     // Clear back and front buffers to alternate values which will force an update
     // of all backbuffer values
-    memset( &g_device.lc_led_button_backbuffer, 0, sizeof( g_device.lc_led_button_backbuffer ) );
-    memset( &g_device.lc_led_encoder_backbuffer, 0, sizeof( g_device.lc_led_encoder_backbuffer ) );
-    memset( &g_device.lc_led_button_frontbuffer, 0x1, sizeof( g_device.lc_led_button_frontbuffer ) );
-    memset( &g_device.lc_led_encoder_frontbuffer, 0x1, sizeof( g_device.lc_led_encoder_frontbuffer ) );
+    g_device.resetBuffers();
 
     DEBUG("USB reconnection finished\n" );
 }
@@ -1072,12 +1191,10 @@ void MnFireTimerEvent( uint8_t const kIndex )
     {
     case TET_MIDI_NOTE_OFF:
         MIDI_noteOff( kEvent.te_param0, 0, MIDI_EXT );
+        sprintf( dbg_buffer, "NOTE OFF\n" );
+        DEBUG( dbg_buffer );
         break;
     case TET_ANALOG_LOW:
-/*
-        sprintf( dbg_buffer, "LOW %d @ %ld\n", (int)kEvent.te_param0, millis() );
-        DEBUG( dbg_buffer );
-*/
         digitalWrite( kEvent.te_param0, LOW );
         break;
     default:
@@ -1128,11 +1245,11 @@ void setup()
 
 void loop() 
 {
-    unsigned long const kBeatDurationMicros = 60000000 / g_state.mns_bpm;
-    unsigned long const kMicrosPerSixteenth = kBeatDurationMicros >> 2;
+    unsigned long const kBeatDurationMicros    = 60000000 / g_state.mns_bpm; // 1/4  note
+    unsigned long const kMicrosPerThirtySecond = kBeatDurationMicros >> 3;   // 1/32 note
     unsigned long const kNow = millis();
 
-    MnCheckSequence( kMicrosPerSixteenth );
+    MnCheckSequence( kMicrosPerThirtySecond );
 
     MnCheckTimers( kNow );
 

@@ -1,0 +1,8 @@
+Debug
+Visual Micro
+*.ncb
+*.suo
+*.vcproj
+*.sln
+*.user
+*~
