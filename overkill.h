@@ -6,34 +6,33 @@
 
 #define DEBUG(s) Serial1.print((char*)s)
 
-#define PIN_RX0 0   // programmer
-#define PIN_TX0 1   // programmer
-#define PIN_D2  2   // unused
-#define PIN_D3  3   // unused
-#define PIN_D4  4   // unused
+#define PIN_RX0 0        // programmer (UART0)
+#define PIN_TX0 1        // programmer (UART0)
 
-#define PIN_D5    5   // unused
-#define PIN_D6    6   // unused
-#define PIN_D7    7   // unused
+#define PIN_D2    2      // unused
+#define PIN_D3    3      // unused
+#define PIN_D4    4      // unused
+#define PIN_D5    5      // unused
+#define PIN_D6    6      // unused
+#define PIN_D7    7      // unused
+#define PIN_D8    8      // unused
+#define PIN_D9    9      // unused
+#define PIN_D10  10      // unused
 
-#define PIN_D8    8   // START SEQ
-#define PIN_D9    9   // STOP SEQ
-#define PIN_D10  10   // RESET SEQ
+#define PIN_CLKIN  11    // CLK IN
+#define PIN_CLKOUT 12    // CLK OUT
 
-#define PIN_CLKIN  11   // CLK IN
-#define PIN_D12    12   // CLK OUT
+#define PIN_LED 13       // LED
 
-#define PIN_LED 13    // LED
+#define PIN_TX3 14       // MIDI OUT 2 (UART 3)
+#define PIN_RX3 15       // unused (UART 3)
+#define PIN_TX2 16       // MIDI OUT 1 (UART 2)
+#define PIN_RX2 17       // MIDI IN (UART 2)
+#define PIN_TX1 18       // USB serial monitor; INTERRUPT 5
+#define PIN_RX1 19       // USB serial monitor; INTERRUPT 4
 
-#define PIN_TX3 14
-#define PIN_RX3 15
-#define PIN_TX2 16   // MIDI OUT
-#define PIN_RX2 17
-#define PIN_TX1 18   // USB serial monitor; INTERRUPT 5
-#define PIN_RX1 19   // USB serial monitor; INTERRUPT 4
-
-#define PIN_TWI_SDA 20 // currently unused; INTERRUPT 3
-#define PIN_TWI_SCL 21 // currently unused; INTERRUPT 2
+#define PIN_D20 20       // currently unused; nominally TWI_SDA/INTERRUPT 3
+#define PIN_D21 21       // currently unused; nominally TWI_SCL/INTERRUPT 2
 
 #define PIN_TRIGGER0 22  // trigger output
 #define PIN_TRIGGER1 23  //
@@ -51,9 +50,9 @@
 #define PIN_LCD_D6 34    //
 #define PIN_LCD_D7 35    //
 
-#define PIN_D36   36     // unused
-#define PIN_D37   37     // unused
+#define PIN_SPI_MICROSD 36 // microSD select 
 
+#define PIN_GATE0     37 // analog gate output
 #define PIN_SPI_CV_X  38 // sequenced CV X (pitch)
 #define PIN_SPI_CV_Y  39 // sequenced CV Y (filter)
 #define PIN_SPI_CV_Z  40 // sequenced CV Z (resonance)
@@ -72,7 +71,7 @@
 #define PIN_MEGA_MISO 50 // SPI control pins
 #define PIN_MEGA_MOSI 51 //
 #define PIN_MEGA_SCK  52 //
-#define PIN_MEGA_SS   53 // (unused, PIN_SPI_CV0..CV7 are the SS)
+#define PIN_D53       53 // unused; nominally SPI SS signal
 
 //
 // Current configuration:

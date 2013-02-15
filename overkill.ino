@@ -1,14 +1,16 @@
 // Schematics:
 //
+// TODO: fine + coarse pitch adjustment
+// TODO: LCD support
+// TODO: MIDI channel/controller configuration
 // TODO: clear all
+// TODO: pattern select
+// TODO: pattern copy
 // TODO: CV outputs (manual)
 // TODO: CV outputs (sequenced)
-// TODO: pattern select
 // TODO: analog clock input
-// TODO: selectable midi channel
 // TODO: MIDI IN (for clocking)?
 // TODO: SD card
-// TODO: LCD support
 #include <avr/pgmspace.h>
 #include <Usb.h>
 #include <usbh_midi.h>
@@ -16,10 +18,24 @@
 #include "overkill.h"
 
 char  dbg_buffer[ 128 ];
-bool  g_sysex_received;
-
 USB   Usb;
 MIDI  Midi(&Usb);
+#define MIDI_INTERVAL 1
+
+void checkFlood()
+{
+    static unsigned long s_last_usb_midi_sent;
+    unsigned long now = millis();
+
+    if ( now  - s_last_usb_midi_sent < MIDI_INTERVAL )
+    {
+        int delaytime = MIDI_INTERVAL - ( now - s_last_usb_midi_sent );
+        delay( delaytime );
+        sprintf(dbg_buffer,"delaying %d\n", delaytime );
+        DEBUG(dbg_buffer);
+    }
+    s_last_usb_midi_sent = now;
+}
 
 void MIDI_noteOn( uint8_t n, uint8_t vel, uint8_t port )
 {
@@ -30,12 +46,13 @@ void MIDI_noteOn( uint8_t n, uint8_t vel, uint8_t port )
 
     if ( port == MIDI_USB )
     {
+        checkFlood();
         SENDMIDI_USB(buffer);
+        sprintf( dbg_buffer, "[%08lu] Note on  0x%02x,0x%02x\n", millis(), (int)n,(int)vel );
+        DEBUG( dbg_buffer );
     }
     else
     {
-        sprintf( dbg_buffer, "[%08lud] Note on  0x%02x,0x%02x\n", millis(), (int)n,(int)vel );
-        DEBUG( dbg_buffer );
         SENDMIDI_MIDI(buffer,sizeof(buffer));
     }
 }
@@ -49,12 +66,13 @@ void MIDI_cc( uint8_t n, uint8_t val, uint8_t port )
 
     if ( port == MIDI_USB )
     {
+        checkFlood();
         SENDMIDI_USB(buffer);
+        sprintf( dbg_buffer, "[%08lu] CC 0x%x 0x%x\n", millis(), (int)n,(int)val );
+        DEBUG( dbg_buffer );
     }
     else
     {
-        sprintf( dbg_buffer, "[%08lud] CC 0x%x 0x%x\n", millis(), (int)n,(int)val );
-        DEBUG( dbg_buffer );
         SENDMIDI_MIDI(buffer,sizeof(buffer));
     }
 }
@@ -66,12 +84,13 @@ void MIDI_noteOff( uint8_t n, uint8_t vel, uint8_t port )
     };
     if ( port == MIDI_USB )
     {
+        checkFlood();
         SENDMIDI_USB(buffer);
+        sprintf( dbg_buffer, "[%08lu] Note off 0x%02x,0x%02x\n", millis(), (int)n,(int)vel );
+        DEBUG( dbg_buffer );
     }
     else
     {
-        sprintf( dbg_buffer, "[%08lud] Note off 0x%02x,0x%02x\n", millis(), (int)n,(int)vel );
-        DEBUG( dbg_buffer );
         SENDMIDI_MIDI(buffer,sizeof(buffer));
     }
 }
@@ -441,16 +460,6 @@ MIDI_numBytesForCMD( int cmd )
 */
 
 
-void FE_SetActiveStep( uint8_t const kStep )
-{
-    g_device.setButtonLED( kStep + LIVID_SEQ_ROW0, 1 );
-
-    g_device.setEncoderLED( LIVID_ENCODER00, g_state.getTrackGate( g_state.mns_active_track, kStep ) );
-    g_device.setEncoderLED( LIVID_ENCODER01, g_state.getTrackCV0( g_state.mns_active_track, kStep ) );
-    g_device.setEncoderLED( LIVID_ENCODER02, g_state.getTrackCV1( g_state.mns_active_track, kStep ) );
-    g_device.setEncoderLED( LIVID_ENCODER03, g_state.getTrackCV2( g_state.mns_active_track, kStep ) );
-}
-
 void MnLoadState()
 {
     g_state.mns_bpm = 120;
@@ -519,7 +528,12 @@ void MnUpdateState( unsigned long kMillis )
     g_device.clearScreen();
 
     // Advance our controller's beat
-    FE_SetActiveStep( kStep );
+    g_device.setButtonLED( kStep + LIVID_SEQ_ROW0, LIVID_COLOR_WHITE );
+
+    g_device.setEncoderLED( LIVID_ENCODER00, g_state.getTrackGate( g_state.mns_active_track, kStep ) );
+    g_device.setEncoderLED( LIVID_ENCODER01, g_state.getTrackCV0( g_state.mns_active_track, kStep ) );
+    g_device.setEncoderLED( LIVID_ENCODER02, g_state.getTrackCV1( g_state.mns_active_track, kStep ) );
+    g_device.setEncoderLED( LIVID_ENCODER03, g_state.getTrackCV2( g_state.mns_active_track, kStep ) );
 
     // Make sure our mode is up to date
     g_device.setButtonLED( LIVID_PAD30, LIVID_COLOR_YELLOW );
@@ -555,7 +569,8 @@ void MnUpdateState( unsigned long kMillis )
         {
             if ( g_state.isEditingStep( step ) )
             {
-                g_device.setButtonLED( LIVID_SEQ_ROW0 + step, LIVID_COLOR_MAGENTA );
+                if ( kStep != step )
+                    g_device.setButtonLED( LIVID_SEQ_ROW0 + step, LIVID_COLOR_MAGENTA );
 
                 g_device.setEncoderLED( LIVID_ENCODER00, g_state.mns_edit_gate );
                 g_device.setEncoderLED( LIVID_ENCODER01, g_state.mns_edit_cv0 );
@@ -674,6 +689,9 @@ void MnCheckSequence( unsigned long const kMicrosPerThirtySecond )
     if ( kDeltaTime < (kMicrosPerThirtySecond*2)-20 )
         return;
 
+
+    g_state.mns_beat++;
+
     {
         uint8_t const kStep = g_state.getStep();
 
@@ -716,8 +734,6 @@ void MnCheckSequence( unsigned long const kMicrosPerThirtySecond )
                 g_state.addTimerEvent( TET_MIDI_NOTE_OFF, kCV0, 0, kNowMS + kGateDurationMS );
             }
         }
-
-        g_state.mns_beat++;
         g_state.mns_last_beat_time = kNow;
     }
 }
@@ -733,6 +749,9 @@ void MnStopSequencer()
 {
     g_state.mns_running = 0;
     digitalWrite(PIN_LED,LOW);
+
+    // Send all notes off
+    MIDI_cc( 123, 0, MIDI_EXT );
 }
 
 void MnResetSequencer()
@@ -812,7 +831,6 @@ void MnHandleMessage( uint8_t const _msg[3] )
     // Sysex?
     if ( msg[ 0 ] == MIDI_SYSEX )
     {
-        g_sysex_received = 1;
     }
 
     // BPM dial
@@ -942,22 +960,20 @@ void MnHandleMessage( uint8_t const _msg[3] )
     }
 }
 
-void WaitForAck()
+void delayLoop()
 {
-    g_sysex_received = 0;
-    DEBUG("Waiting for ack");
-
-    for ( int i = 0; i < 100; i++ )
+    int q = 10;
+    while ( q-- > 0 )
     {
         Usb.Task();
         delay(10);
-        DEBUG(".");
     }
-    DEBUG("\n");
 }
 
 void MnInitCNTRLR()
 {
+    int const DELAY_TIME = 100;
+
     DEBUG( "Sending CNTRL:R sysex\n" );
 
 #if 1
@@ -968,8 +984,7 @@ void MnInitCNTRLR()
             LIVID_SYSEX, 0x06, MIDI_EOX
         };
         SENDMIDI_USB(sysex_factory_reset);
-
-        WaitForAck();
+        delayLoop();
     }
 #endif
 
@@ -981,8 +996,7 @@ void MnInitCNTRLR()
             LIVID_SYSEX, 0x0D, 0x00, MIDI_EOX
         };
         SENDMIDI_USB(sysex_factory_reset);
-
-        WaitForAck();
+        delayLoop();
     }
 #endif
 
@@ -1010,9 +1024,7 @@ void MnInitCNTRLR()
         };
 
         SENDMIDI_USB( sysex_map_analog_inputs );
-        delay(100);
-
-        WaitForAck();
+        delay(DELAY_TIME);
     }
 #endif
 
@@ -1028,9 +1040,7 @@ void MnInitCNTRLR()
         };
 
         SENDMIDI_USB(sysex_fill_mode);
-        delay(100);
-
-//        WaitForAck();
+        delayLoop();
     }
 #endif
 
@@ -1046,9 +1056,7 @@ void MnInitCNTRLR()
         };
 
         SENDMIDI_USB(sysex_encosion_mode);
-        delay(100);
-
-        WaitForAck();
+        delayLoop();
     }
 #endif
 
@@ -1064,9 +1072,7 @@ void MnInitCNTRLR()
         };
 
         SENDMIDI_USB(sysex_local_off_mode);
-        delay(100);
-
-        WaitForAck();
+        delayLoop();
     }
 #endif
 
@@ -1092,14 +1098,14 @@ void MnReconnectUSB()
     }
     DEBUG("success\n" );
 
-    int attempts = 10;
+    int attempts = 100;
 
     DEBUG("Waiting on USB to run");
     while ( Usb.getUsbTaskState() != USB_STATE_RUNNING )
     {
         DEBUG(".");
         Usb.Task();
-        delay(1000);
+        delay(100);
         if ( --attempts == 0 )
             break;
     }
@@ -1111,8 +1117,6 @@ void MnReconnectUSB()
     }
 
     DEBUG("success!\n" );
-
-    delay(10);
 
     g_state.mns_usb_connected = 1;
     MnInitCNTRLR();
@@ -1216,6 +1220,11 @@ void MnCheckTimers( unsigned long const kNowMS )
     }
 }
 
+int getFreeRAM() {
+  extern int __heap_start, *__brkval; 
+  int v; 
+  return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval); 
+}
 
 // the setup routine runs once when you press reset:
 void setup() 
@@ -1235,12 +1244,14 @@ void setup()
     // This is debug monitor
     Serial1.begin(57600);
 
+    sprintf( dbg_buffer, "sizeof( g_state ) == %d\n", sizeof( g_state ) );
+    DEBUG( dbg_buffer );
+    sprintf( dbg_buffer, "free mem == %d\n", getFreeRAM() );
+    DEBUG( dbg_buffer );
+
     // This is the MIDI OUT port
     DEBUG( "Initializing MIDI OUT\n" );
     Serial2.begin( 31250 );
-
-    sprintf( dbg_buffer, "sizeof( g_state ) == %d\n", sizeof( g_state ) );
-    DEBUG( dbg_buffer );
 }
 
 void loop() 
