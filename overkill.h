@@ -17,8 +17,8 @@
 #define PIN_D7    7      // unused
 #define PIN_D8    8      // unused
 #define PIN_D9    9      // unused
-#define PIN_D10  10      // unused
 
+#define PIN_RESET  10    // Reset sequence
 #define PIN_CLKIN  11    // CLK IN
 #define PIN_CLKOUT 12    // CLK OUT
 
@@ -92,10 +92,23 @@
 
 #define MAX_TIMER_EVENTS 32
 
-#define MODE_CONTROL 0
-#define MODE_TRACK   1
-#define MODE_MUTE    2
-#define MODE_PITCH   3
+#define MODE_TRACK_SELECT 0
+#define MODE_TRACK_MUTE   1
+
+#define MODE_STEP_MUTE 0
+#define MODE_STEP_EDIT 1
+
+#define MODE_SELECT_INACTIVE 0
+#define MODE_SELECT_ACTIVE   1
+
+#define MODE_SHIFT_SELECT_ALL      0
+#define MODE_SHIFT_SELECT_NONE     1
+
+#define MODE_EDIT_NONE   0
+#define MODE_EDIT_GATE   1
+#define MODE_EDIT_PITCH  2
+#define MODE_EDIT_CV0    3
+#define MODE_EDIT_CV1    4
 
 // Channel Voice messages
 #define MIDI_NOTE_OFF 0x80    // key, vel
@@ -124,3 +137,22 @@
 #define MIDI_ACTIVE 0xFE
 #define MIDI_RESET  0xFF
 
+// Control mappings
+#define OVERKILL_SHIFT_BUTTON        ( LIVID_SEQ_ROW1 + 0 )
+#define OVERKILL_SELECT_BUTTON       ( LIVID_SEQ_ROW1 + 1 )
+#define OVERKILL_EDIT_STEP_BUTTON    ( LIVID_SEQ_ROW1 + 2 )
+#define OVERKILL_RANGE_SELECT_BUTTON ( LIVID_SEQ_ROW1 + 3 )
+
+#define OVERKILL_GATE_BUTTON      ( LIVID_SEQ_ROW1 + 4 )
+#define OVERKILL_CV0_BUTTON       ( LIVID_SEQ_ROW1 + 5 )
+#define OVERKILL_CV1_BUTTON       ( LIVID_SEQ_ROW1 + 6 )
+#define OVERKILL_CV2_BUTTON       ( LIVID_SEQ_ROW1 + 7 )
+
+#define OVERKILL_ALL_OFF_BUTTON        ( LIVID_SEQ_ROW1 + 8 )
+#define OVERKILL_COPY_PASTE_BUTTON     ( LIVID_SEQ_ROW1 + 10 )
+#define OVERKILL_SELECT_PATTERN_BUTTON ( LIVID_SEQ_ROW1 + 11 )
+
+#define OVERKILL_TRACK_MUTE_BUTTON   ( LIVID_SEQ_ROW1 + 12 )
+#define OVERKILL_TRACK_SELECT_BUTTON ( LIVID_SEQ_ROW1 + 13 )
+#define OVERKILL_RESET_BUTTON        ( LIVID_SEQ_ROW1 + 14 )
+#define OVERKILL_START_BUTTON        ( LIVID_SEQ_ROW1 + 15 )
