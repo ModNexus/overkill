@@ -24,6 +24,15 @@ USB   Usb;
 MIDI  Midi(&Usb);
 #define MIDI_INTERVAL 2
 
+void delayLoop(int n)
+{
+    while ( n-- > 0 )
+    {
+        Usb.Task();
+        delay(1);
+    }
+}
+
 void checkFlood()
 {
     static unsigned long s_last_usb_midi_sent;
@@ -32,9 +41,10 @@ void checkFlood()
     if ( now  - s_last_usb_midi_sent < MIDI_INTERVAL )
     {
         int delaytime = MIDI_INTERVAL - ( now - s_last_usb_midi_sent );
-        delay( delaytime );
-        sprintf(dbg_buffer,"delaying %d\n", delaytime );
-        DEBUG(dbg_buffer);
+
+        delay(delaytime);
+//        sprintf(dbg_buffer,"delaying %d\n", delaytime );
+//        DEBUG(dbg_buffer);
     }
     s_last_usb_midi_sent = now;
 }
@@ -48,14 +58,15 @@ void MIDI_noteOn( uint8_t n, uint8_t vel, uint8_t port )
 
     if ( port == MIDI_USB )
     {
-        checkFlood();
+//        checkFlood();
+        delay(1);
         SENDMIDI_USB(buffer);
     }
     else
     {
         SENDMIDI_MIDI(buffer,sizeof(buffer));
-        sprintf( dbg_buffer, "[%08lu] Note on  0x%02x,0x%02x\n", millis(), (int)n,(int)vel );
-        DEBUG( dbg_buffer );
+//        sprintf( dbg_buffer, "[%08lu] Note on  0x%02x,0x%02x\n", millis(), (int)n,(int)vel );
+//        DEBUG( dbg_buffer );
     }
 }
 
@@ -70,8 +81,8 @@ void MIDI_cc( uint8_t n, uint8_t val, uint8_t port )
     {
         checkFlood();
         SENDMIDI_USB(buffer);
-        sprintf( dbg_buffer, "[%08lu] CC 0x%x 0x%x\n", millis(), (int)n,(int)val );
-        DEBUG( dbg_buffer );
+//        sprintf( dbg_buffer, "[%08lu] CC 0x%x 0x%x\n", millis(), (int)n,(int)val );
+//        DEBUG( dbg_buffer );
     }
     else
     {
@@ -92,8 +103,8 @@ void MIDI_noteOff( uint8_t n, uint8_t vel, uint8_t port )
     else
     {
         SENDMIDI_MIDI(buffer,sizeof(buffer));
-        sprintf( dbg_buffer, "[%08lu] Note off 0x%02x,0x%02x\n", millis(), (int)n,(int)vel );
-        DEBUG( dbg_buffer );
+//        sprintf( dbg_buffer, "[%08lu] Note off 0x%02x,0x%02x\n", millis(), (int)n,(int)vel );
+//        DEBUG( dbg_buffer );
     }
 }
 
@@ -131,6 +142,7 @@ struct LividCNTRLR
 
     void swapBuffers()
     {
+#if 1
         // Update buttons
         for ( uint8_t i = LIVID_PAD00; i <= LIVID_ENCODER23; i++ )
         {
@@ -157,6 +169,43 @@ struct LividCNTRLR
                 MIDI_cc( i + LIVID_ENCODER00, b, MIDI_USB );
             }
         }
+#else
+        delay(100);
+
+    uint8_t sysex[] =
+    {
+        /* 0..4 */ LIVID_SYSEX,
+        /* 5 */ 0x04,
+        /* 6 */ 0x3F,0x3F,0x3f,0x3f,0x3F,0x3F,0x3F,0x3F,
+        0x31,0x31,0x31,0x31,0x31,0x31,0x31,0x31,
+        0x33,0x33,0x33,0x33,0x33,0x33,0x33,0x33,
+        0x5F,0x5F,0x5F,0x5F,0x5F,0x5F,
+        MIDI_EOX 
+    };
+
+#define PACK8(a,b) (((a&0x7)<<3)|(b&0x7))
+/*
+    sysex[ 6 ] = PACK8( lc_led_button_backbuffer[ LIVID_PAD00 ], lc_led_button_backbuffer[ LIVID_PAD10 ] );
+    sysex[ 7 ] = PACK8( lc_led_button_backbuffer[ LIVID_PAD20 ], lc_led_button_backbuffer[ LIVID_PAD30 ] );
+    sysex[ 8 ] = PACK8( lc_led_button_backbuffer[ LIVID_PAD01 ], lc_led_button_backbuffer[ LIVID_PAD11 ] );
+    sysex[ 9 ] = PACK8( lc_led_button_backbuffer[ LIVID_PAD21 ], lc_led_button_backbuffer[ LIVID_PAD31 ] );
+    sysex[ 10 ] = PACK8( lc_led_button_backbuffer[ LIVID_PAD02 ], lc_led_button_backbuffer[ LIVID_PAD12 ] );
+    sysex[ 11 ] = PACK8( lc_led_button_backbuffer[ LIVID_PAD22 ], lc_led_button_backbuffer[ LIVID_PAD32 ] );
+    sysex[ 12 ] = PACK8( lc_led_button_backbuffer[ LIVID_PAD03 ], lc_led_button_backbuffer[ LIVID_PAD13 ] );
+    sysex[ 13 ] = PACK8( lc_led_button_backbuffer[ LIVID_PAD23 ], lc_led_button_backbuffer[ LIVID_PAD33 ] );
+
+    sysex[ 14 ] = PACK8( lc_led_button_backbuffer[ LIVID_SEQ_ROW0 + 0 ], lc_led_button_backbuffer[ LIVID_SEQ_ROW0 + 2 ] );
+    sysex[ 15 ] = PACK8( lc_led_button_backbuffer[ LIVID_SEQ_ROW0 + 4 ], lc_led_button_backbuffer[ LIVID_SEQ_ROW0 + 6 ] );
+    sysex[ 16 ] = PACK8( lc_led_button_backbuffer[ LIVID_SEQ_ROW0 + 8 ], lc_led_button_backbuffer[ LIVID_SEQ_ROW0 + 10 ] );
+    sysex[ 17 ] = PACK8( lc_led_button_backbuffer[ LIVID_SEQ_ROW0 + 12 ], lc_led_button_backbuffer[ LIVID_SEQ_ROW0 + 14 ] );
+    sysex[ 18 ] = PACK8( lc_led_button_backbuffer[ LIVID_SEQ_ROW0 + 16 ], lc_led_button_backbuffer[ LIVID_SEQ_ROW0 + 18 ] );
+    sysex[ 19 ] = PACK8( lc_led_button_backbuffer[ LIVID_SEQ_ROW0 + 4 ], lc_led_button_backbuffer[ LIVID_SEQ_ROW0 + 6 ] );
+    sysex[ 20 ] = PACK8( lc_led_button_backbuffer[ LIVID_SEQ_ROW0 + 8 ], lc_led_button_backbuffer[ LIVID_SEQ_ROW0 + 10 ] );
+    sysex[ 21 ] = PACK8( lc_led_button_backbuffer[ LIVID_SEQ_ROW0 + 12 ], lc_led_button_backbuffer[ LIVID_SEQ_ROW0 + 14 ] );
+*/
+    SENDMIDI_USB(sysex);
+    DEBUG("Swap\n" );
+#endif
     }
 
     uint8_t trackToPad( uint8_t const kTrack )
@@ -995,26 +1044,7 @@ void MnHandleMessage( uint8_t const _msg[3] )
     if ( msg[ 0 ] == MIDI_CC )
     {
         int8_t const kFaderIndex = g_device.faderIndexFromCC( msg[ 1 ] );
-        bool const kIsEditing = g_state.isEditingAnyStep();
-/*
-        if ( msg[ 1 ] == LIVID_ENCODER00 && kIsEditing )
-        {
-            MnSetGate( msg[ 2 ] );
-        }
-        else if ( msg[ 1 ] == LIVID_ENCODER01 && kIsEditing )
-        {
-            MnSetCV0( msg[ 2 ] );
-        }
-        else if ( msg[ 1 ] == LIVID_ENCODER02 && kIsEditing )
-        {
-            MnSetCV1( msg[ 2 ] );
-        }
-        else if ( msg[ 1 ] == LIVID_ENCODER03 && kIsEditing )
-        {
-            MnSetCV2( msg[ 2 ] );
-        }
-        else
-*/
+
         if ( kFaderIndex >= 0 )
         {
             uint8_t const kValue = msg[ 2 ];
@@ -1141,15 +1171,6 @@ void MnHandleMessage( uint8_t const _msg[3] )
     }
 }
 
-void delayLoop()
-{
-    int q = 10;
-    while ( q-- > 0 )
-    {
-        Usb.Task();
-        delay(10);
-    }
-}
 
 void MnInitCNTRLR()
 {
@@ -1157,7 +1178,7 @@ void MnInitCNTRLR()
 
     DEBUG( "Sending CNTRL:R sysex\n" );
 
-#if 1
+#if 0
     // Factory reset
     DEBUG( "Sending factory reset\n" );
     {
@@ -1165,7 +1186,7 @@ void MnInitCNTRLR()
             LIVID_SYSEX, 0x06, MIDI_EOX
         };
         SENDMIDI_USB(sysex_factory_reset);
-        delayLoop();
+        delayLoop(1000);
     }
 #endif
 
@@ -1177,7 +1198,7 @@ void MnInitCNTRLR()
             LIVID_SYSEX, 0x0D, 0x00, MIDI_EOX
         };
         SENDMIDI_USB(sysex_factory_reset);
-        delayLoop();
+        delay(100);
     }
 #endif
 
@@ -1221,7 +1242,7 @@ void MnInitCNTRLR()
         };
 
         SENDMIDI_USB(sysex_fill_mode);
-        delayLoop();
+        delay(100);
     }
 #endif
 
@@ -1237,7 +1258,7 @@ void MnInitCNTRLR()
         };
 
         SENDMIDI_USB(sysex_encosion_mode);
-        delayLoop();
+        delay(100);
     }
 #endif
 
@@ -1253,8 +1274,61 @@ void MnInitCNTRLR()
         };
 
         SENDMIDI_USB(sysex_local_off_mode);
-        delayLoop();
+        delay(100);
     }
+#endif
+
+
+#if 0
+    int q = 0;
+    while ( 1 )
+    {
+        q++;
+        uint8_t table[8] = { 
+            LIVID_COLOR_OFF,
+            LIVID_COLOR_RED, 
+            LIVID_COLOR_GREEN,
+            LIVID_COLOR_BLUE,
+            LIVID_COLOR_CYAN,
+            LIVID_COLOR_YELLOW,
+            LIVID_COLOR_MAGENTA,
+            LIVID_COLOR_WHITE
+        };
+
+        // Update buttons
+        for ( uint8_t i = LIVID_PAD00; i <= LIVID_PAD30; i++ )
+        {
+            MIDI_noteOn( i, table[q&0x7], MIDI_USB );
+        }
+//        MIDI_noteOn( LIVID_PAD33, 0, MIDI_USB );
+        delay(1000);
+    }
+#elif 0
+
+    int q = 2;
+
+    do 
+    {
+        uint8_t sysex[] =
+        {
+            LIVID_SYSEX,
+            0x04,
+            0x7f,0x7f,0x7f,0x7f,0x3f,0x3f,0x3f,0x3f,
+            0x33,0x33,0x33,0x33,0x33,0x33,0x33,0x33,
+            0x33,0x33,0x33,0x33,0x33,0x33,0x33,0x33,
+            0x52,0x52,0x52,0x52,0x52,0x52,
+            MIDI_EOX 
+        };
+        SENDMIDI_USB(sysex);
+        delayLoop(1000);
+    } while ( --q );
+    DEBUG("Done\n" );
+/*
+    while ( 1 ) 
+    {
+        Usb.Task();
+    }
+*/
 #endif
 
 }
@@ -1267,9 +1341,11 @@ void MnReconnectUSB()
     DEBUG("Reconnecting USB...\n" );
     Serial.begin(31500);
 
+#if 0
     //workaround for non UHS2.0 Shield
     pinMode(7,OUTPUT);
     digitalWrite(7,HIGH);
+#endif
 
     DEBUG("USB.Init()..." );
     if (Usb.Init() == -1) 
@@ -1328,22 +1404,18 @@ void MnCheckUSB()
         memset( msgs, 0, sizeof( msgs ) );
         uint16_t bytes_received = 0;
 
-//        while ( Midi.RcvData(&bytes_received,msgs) == 0 )
         if ( ( bytes_received = Midi.RcvData(msgs) ) != 0 )
         {
-            if ( bytes_received )
+            sprintf( dbg_buffer, "IN: %ld[%d]: ", (long)millis(), (int)bytes_received);
+            DEBUG( dbg_buffer );
+            for ( int i = 0; i < bytes_received; i++ )
             {
-                sprintf( dbg_buffer, "%ld[%d]: ", (long)millis(), (int)bytes_received);
-                DEBUG( dbg_buffer );
-                for ( int i = 0; i < bytes_received; i++ )
-                {
-                    sprintf( dbg_buffer, "0x%x ", (int)msgs[i] );
-                    DEBUG(dbg_buffer);
-                }
-                DEBUG("\n" );
-
-                MnHandleMessage( msgs );
+                sprintf( dbg_buffer, "0x%x ", (int)msgs[i] );
+                DEBUG(dbg_buffer);
             }
+            DEBUG("\n" );
+
+            MnHandleMessage( msgs );
         }
     }
     else
