@@ -634,17 +634,32 @@ void MnUpdateState( unsigned long kMillis )
     //
     // Draw 16x16
     //
-    if ( g_state.mns_editing_gate || g_state.mns_editing_cv0 || g_state.mns_editing_cv1 || g_state.mns_editing_cv2 )
+    if ( g_state.mns_editing_cv0 )
+    {
+        g_device.setButtonLED( LIVID_SEQ_ROW0 + 0, LIVID_COLOR_WHITE );
+        g_device.setButtonLED( LIVID_SEQ_ROW0 + 1, LIVID_COLOR_OFF );
+        g_device.setButtonLED( LIVID_SEQ_ROW0 + 2, LIVID_COLOR_WHITE );
+        g_device.setButtonLED( LIVID_SEQ_ROW0 + 3, LIVID_COLOR_OFF );
+        g_device.setButtonLED( LIVID_SEQ_ROW0 + 4, LIVID_COLOR_WHITE );
+        g_device.setButtonLED( LIVID_SEQ_ROW0 + 5, LIVID_COLOR_WHITE );
+        g_device.setButtonLED( LIVID_SEQ_ROW0 + 6, LIVID_COLOR_OFF );
+        g_device.setButtonLED( LIVID_SEQ_ROW0 + 7, LIVID_COLOR_WHITE );
+        g_device.setButtonLED( LIVID_SEQ_ROW0 + 8, LIVID_COLOR_OFF );
+        g_device.setButtonLED( LIVID_SEQ_ROW0 + 9, LIVID_COLOR_WHITE );
+        g_device.setButtonLED( LIVID_SEQ_ROW0 + 10, LIVID_COLOR_OFF );
+        g_device.setButtonLED( LIVID_SEQ_ROW0 + 11, LIVID_COLOR_WHITE );
+        g_device.setButtonLED( LIVID_SEQ_ROW0 + 12, LIVID_COLOR_WHITE );
+
+        // Show active one
+        // Show octave
+    }
+    else if ( g_state.mns_editing_gate || g_state.mns_editing_cv1 || g_state.mns_editing_cv2 )
     {
         int8_t kNum = 0;
 
         if ( g_state.mns_editing_gate )
         {
             kNum = ( g_state.mns_gate_value == 0 ) ? 0 : ( ( g_state.mns_gate_value  ) >> 2 ) + 1;
-        }
-        else if ( g_state.mns_editing_cv0 )
-        {
-            kNum = ( g_state.mns_cv0_value == 0 ) ? 0 : ( ( g_state.mns_cv0_value  ) >> 2 ) + 1;
         }
         else if ( g_state.mns_editing_cv1 )
         {
@@ -674,7 +689,7 @@ void MnUpdateState( unsigned long kMillis )
         {
             if ( g_state.trackHasAnyData( i ) )
             {
-                if ( g_state.isTrackStepEnabled( i, g_state.getStep() ) )
+                if ( g_state.isTrackNoteOn( i ) )
                 {
                     g_device.setButtonLED( g_device.trackToPad( i ), LIVID_COLOR_MAGENTA );
                 }
@@ -811,12 +826,17 @@ void MnCheckSequence( unsigned long const kMicrosPer32nd )
             // See if we have to trigger gate on
             if ( kGate && kIsNewBeat && kTrack.isStepEnabled( kStep ) )
             {
+                DEBUG("Pin high\n" );
                 digitalWrite( PIN_TRIGGER0 + track, HIGH );
+                kTrack.mnt_gate_on_time = kNowMS;
+                kTrack.mnt_gate_off_time = kNowMS + kGateDurationMS;
             }
             // Time to gate off?
             else if ( kTrack.mnt_gate_off_time > 0 && kTrack.mnt_gate_off_time < kNowMS )
             {
+                DEBUG("Pin low\n" );
                 digitalWrite( PIN_TRIGGER0 + track, LOW );
+                kTrack.mnt_gate_off_time = kTrack.mnt_gate_on_time = 0;
             }
         }
         // Tracks 8+ are MIDI or CV
