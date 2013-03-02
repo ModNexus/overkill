@@ -9,16 +9,18 @@
 #define PIN_RX0 0        // programmer (UART0)
 #define PIN_TX0 1        // programmer (UART0)
 
-#define PIN_D2    2      // unused
-#define PIN_D3    3      // unused
-#define PIN_D4    4      // unused
+#define PIN_D2   2       // unused
+#define PIN_D3   3       // unused
+#define PIN_D4   4       // unused
+
 #define PIN_D5    5      // unused
 #define PIN_D6    6      // unused
 #define PIN_D7    7      // unused
 #define PIN_D8    8      // unused
-#define PIN_D9    9      // unused
 
-#define PIN_RESET  10    // Reset sequence
+#define PIN_USB_SHIELD_INT 9   // USB host shield
+#define PIN_USB_SHIELD_SS  10  // USB host shield
+
 #define PIN_CLKIN  11    // CLK IN
 #define PIN_CLKOUT 12    // CLK OUT
 
@@ -66,12 +68,13 @@
 #define PIN_SPI_CV6   47 //
 #define PIN_SPI_CV7   48 //
 
-#define PIN_D49       49 // unused
+#define PIN_ENCODER_BUTTON 49
 
 #define PIN_MEGA_MISO 50 // SPI control pins
 #define PIN_MEGA_MOSI 51 //
 #define PIN_MEGA_SCK  52 //
-#define PIN_D53       53 // unused; nominally SPI SS signal
+
+#define PIN_USB_SHIELD 53 // USB shield; nominally SPI SS signal (USB shield)
 
 //
 // Current configuration:

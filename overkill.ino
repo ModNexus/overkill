@@ -7,6 +7,7 @@
 // TODO: analog clock input
 // TODO: MIDI IN (for clocking)?
 // TODO: SD card
+#include <LiquidCrystal.h>
 #include <avr/pgmspace.h>
 #include <Usb.h>
 #include <usbh_midi.h>
@@ -15,10 +16,14 @@
 
 #define CLAMP(a,b,c) ((a)=min(max(a,b),c))
 
+volatile uint8_t g_encoder;
+
 char  dbg_buffer[ 128 ];
 USB   Usb;
 MIDI  Midi(&Usb);
 #define MIDI_INTERVAL 2
+
+LiquidCrystal lcd( PIN_LCD_RS, PIN_LCD_EN, PIN_LCD_D4, PIN_LCD_D5, PIN_LCD_D6, PIN_LCD_D7 );
 
 void MIDI_noteOn( uint8_t n, uint8_t vel, uint8_t port )
 {
@@ -255,6 +260,8 @@ struct MnTrack
 
 struct MnState
 {
+    bool    mns_encoder_down;
+
     uint8_t mns_usb_connected;
 
     //
@@ -1390,6 +1397,20 @@ void MnCheckUSB()
 
 void MnCheckLocalControls()
 {
+    bool was_down = g_state.mns_encoder_down;
+
+    g_state.mns_encoder_down = !digitalRead( PIN_ENCODER_BUTTON );
+
+    if ( !g_state.mns_encoder_down && was_down )
+    {
+        sprintf( dbg_buffer, "Click [%ld]\n", millis() );
+        DEBUG( dbg_buffer );
+    }
+
+    sprintf( dbg_buffer, "Enc %d [%ld]\n", g_encoder, millis() );
+    DEBUG( dbg_buffer );
+
+    delay(100);
 }
 
 void MnFireTimerEvent( uint8_t const kIndex )
@@ -1423,20 +1444,59 @@ void MnCheckTimers( unsigned long const kNowMS )
     }
 }
 
-int getFreeRAM() {
+int getFreeRAM() 
+{
   extern int __heap_start, *__brkval; 
   int v; 
   return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval); 
 }
 
+void updateEncoder()
+{
+    static uint8_t last;
+
+    uint8_t now = ( digitalRead( PIN_D20 ) << 1 ) | digitalRead( PIN_D21 );
+
+    //  CW:  0 2 3 1
+    //  CCW: 0 1 3 2
+    if ( ( last == 0 && now == 2 ) ||
+         ( last == 2 && now == 3 ) ||
+         ( last == 3 && now == 1 ) ||
+         ( last == 1 && now == 0 ) )
+    {
+        g_encoder++;
+    }
+    else if ( last != now )
+    {
+        g_encoder--;
+    }
+//    g_encoder = now;
+
+    last = now;
+}
+
 // the setup routine runs once when you press reset:
 void setup() 
 {
+    lcd.print( "ModOverkill 0.99" );
+
     MnLoadState();
 
-    // initialize the digital pin as an output.
+    // initialize the LED pin
     pinMode( PIN_LED, OUTPUT);
     digitalWrite( PIN_LED,HIGH);
+
+    // Set up the rotary encoder
+    pinMode( PIN_ENCODER_BUTTON, INPUT );
+    digitalWrite( PIN_ENCODER_BUTTON, HIGH );
+
+    pinMode( PIN_D20, INPUT );
+    digitalWrite( PIN_D20, HIGH );
+    pinMode( PIN_D21, INPUT );
+    digitalWrite( PIN_D21, HIGH );
+
+    attachInterrupt( 2, updateEncoder, CHANGE );
+    attachInterrupt( 3, updateEncoder, CHANGE );
   
     for ( unsigned char i = 0; i < NUM_TRIGGERS; i++ )
     {
