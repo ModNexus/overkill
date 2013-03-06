@@ -1,12 +1,16 @@
 // Schematics:
 //
-// TODO: LCD support
+// TODO: Solder extension headers on USB shield
+// TODO: Add back button
+// TODO: SD shield
+// TODO: Double check relative encoder stuff
 // TODO: MIDI channel/controller configuration
 // TODO: CV outputs (manual)
 // TODO: CV outputs (sequenced)
-// TODO: analog clock input
+// TODO: analog clock input/output/reset
 // TODO: MIDI IN (for clocking)?
-// TODO: SD card
+// TODO: chord stuff?
+#include <SD.h>
 #include <LiquidCrystal.h>
 #include <avr/pgmspace.h>
 #include <Usb.h>
@@ -17,10 +21,14 @@
 #define CLAMP(a,b,c) ((a)=min(max(a,b),c))
 
 volatile uint8_t g_encoder;
+volatile uint8_t g_last_encoder;
 
 char  dbg_buffer[ 128 ];
 USB   Usb;
 MIDI  Midi(&Usb);
+
+File fp_config;
+
 #define MIDI_INTERVAL 2
 
 LiquidCrystal lcd( PIN_LCD_RS, PIN_LCD_EN, PIN_LCD_D4, PIN_LCD_D5, PIN_LCD_D6, PIN_LCD_D7 );
@@ -258,84 +266,86 @@ struct MnTrack
     }
 };
 
-struct MnState
+struct MnRunningState
 {
-    bool    mns_encoder_down;
+    long     rs_lcd_restore_time;
 
-    uint8_t mns_usb_connected;
+    uint8_t  rs_encoder_down;
+    uint8_t  rs_back_down;
 
-    //
-    // Timer stuff
-    //
-    MnTimerEvent  mns_timer_events[ MAX_TIMER_EVENTS ];
-    void addTimerEvent( uint8_t const kType, uint8_t const kParam0, uint8_t const kParam1, uint32_t const kWhen );
+    MainMenu_t rs_main_menu;
+    uint8_t    rs_temp_clock_source;
+    int8_t     rs_temp_track_select;
+    bool       rs_is_editing_config;
 
-#if 0
-    bool removeTimerEvent( uint8_t const kType, uint8_t const kParam0 )
-    {
-        uint8_t s;
-        bool found = false;
-
-        for ( s = 0; s < MAX_TIMER_EVENTS; s++ )
-        {
-            if ( ( mns_timer_events[ s ].te_type == kType ) &&
-                ( mns_timer_events[ s ].te_param0 == kParam0 ) &&
-                ( mns_timer_events[ s ].te_trigger_time_ms > 0 ) )
-            {
-                mns_timer_events[ s ].te_trigger_time_ms = 0;
-                found = true;
-            }
-        }
-
-        return found;
-    }
-#endif
+    uint8_t    rs_usb_connected;
+    uint16_t   rs_beat;
+    uint32_t   rs_last_beat_time;
+    bool       rs_running;
+    uint8_t    getStep( void ) { return rs_beat & ( NUM_STEPS - 1 ); }
 
     //
     // button stuff
     //
-    uint8_t mns_button_state[ 8 ]; // Assumes up to 64 buttons (CNTRL:R has almost that many)
+    uint8_t rs_button_state[ 8 ]; // Assumes up to 64 buttons (CNTRL:R has almost that many)
     uint8_t getButtonState( uint8_t const kControlNumber )
     {
         uint8_t const kByteVal = kControlNumber >> 3;
         uint8_t const kBitVal  = kControlNumber & 7;
 
-        if ( kByteVal >= sizeof( mns_button_state ) )
+        if ( kByteVal >= sizeof( rs_button_state ) )
         {
             return 0;
         }
 
-        return ( mns_button_state[ kByteVal ] >> kBitVal ) & 1;
+        return ( rs_button_state[ kByteVal ] >> kBitVal ) & 1;
     }
     void setButtonState( uint8_t const kControlNumber, bool const kOn )
     {
         uint8_t const kByteVal = kControlNumber >> 3;
         uint8_t const kBitVal  = kControlNumber & 7;
 
-        if ( kByteVal >= sizeof( mns_button_state ) )
+        if ( kByteVal >= sizeof( rs_button_state ) )
         {
             return;
         }
 
         if ( kOn )
         {
-            mns_button_state[ kByteVal ] |= ( 1 << kBitVal );
+            rs_button_state[ kByteVal ] |= ( 1 << kBitVal );
         }
         else
         {
-            mns_button_state[ kByteVal ] &= ~( 1 << kBitVal );
+            rs_button_state[ kByteVal ] &= ~( 1 << kBitVal );
         }
     }
+
+    MnRunningState()
+    {
+        rs_temp_track_select = -1;
+    }
+
+
+};
+
+MnRunningState g_rs;
+
+struct MnState
+{
+    uint32_t mns_cookie;
+    uint16_t mns_version;
+
+    ClockSource_t mns_clock_source;
+    TrackConfig_t mns_track_config;
 
     //
     // misc state
     //
-
     uint8_t       mns_mode;
-    uint8_t       mns_bpm;
+
+    uint16_t      mns_bpm_times_10;  // scaled BPM
     uint8_t       mns_active_track;
 
-    uint8_t       mns_editing_mode;
     int8_t        mns_gate_value;
     int8_t        mns_cv0_value, mns_cv1_value, mns_cv2_value;
     bool          mns_is_editing_step[ NUM_STEPS ]; // Is step being edited?
@@ -362,14 +372,7 @@ struct MnState
         return mns_is_editing_step[ kStep ];
     }
 
-    unsigned int  mns_beat;
-    unsigned long mns_last_beat_time;
-
-    bool          mns_running;
-
     MnTrack       mns_tracks[ NUM_TRACKS ];
-
-    uint8_t       getStep( void ) { return mns_beat & ( NUM_STEPS - 1 ); }
 
     bool trackHasAnyData( uint8_t const kTrack ) 
     {
@@ -476,13 +479,38 @@ struct MnState
     }
 
     // Set sane default track values
-    MnState()
+    MnState() : mns_cookie( OVERKILL_MAGIC_COOKIE ), mns_version( OVERKILL_STATE_VERSION )
     {
-        mns_running = false;
     }
 };
 
 MnState g_state;
+
+#if 0
+//
+// Timer stuff
+//
+MnTimerEvent  mns_timer_events[ MAX_TIMER_EVENTS ];
+void addTimerEvent( uint8_t const kType, uint8_t const kParam0, uint8_t const kParam1, uint32_t const kWhen );
+
+bool removeTimerEvent( uint8_t const kType, uint8_t const kParam0 )
+{
+    uint8_t s;
+    bool found = false;
+
+    for ( s = 0; s < MAX_TIMER_EVENTS; s++ )
+    {
+        if ( ( mns_timer_events[ s ].te_type == kType ) &&
+            ( mns_timer_events[ s ].te_param0 == kParam0 ) &&
+            ( mns_timer_events[ s ].te_trigger_time_ms > 0 ) )
+        {
+            mns_timer_events[ s ].te_trigger_time_ms = 0;
+            found = true;
+        }
+    }
+
+    return found;
+}
 
 void MnState::addTimerEvent( uint8_t const kType, uint8_t const kParam0, uint8_t const kParam1, uint32_t const kWhen )
 {
@@ -511,9 +539,42 @@ void MnState::addTimerEvent( uint8_t const kType, uint8_t const kParam0, uint8_t
     e->te_param1 = kParam1;
 }
 
+void MnFireTimerEvent( uint8_t const kIndex )
+{
+    MnTimerEvent &kEvent = g_state.mns_timer_events[ kIndex ];
+
+    switch ( kEvent.te_type )
+    {
+    case TET_MIDI_NOTE_OFF:
+        MIDI_noteOff( kEvent.te_param0, 0, MIDI_EXT );
+        break;
+    case TET_ANALOG_LOW:
+        digitalWrite( kEvent.te_param0, LOW );
+        break;
+    default:
+        break;
+    }
+}
+
+void MnCheckTimers( unsigned long const kNowMS )
+{
+    for ( uint8_t i = 0; i < MAX_TIMER_EVENTS; i++ )
+    {
+        if ( g_state.mns_timer_events[ i ].te_trigger_time_ms == 0 )
+            continue;
+        if ( g_state.mns_timer_events[ i ].te_trigger_time_ms <= kNowMS )
+        {
+            g_state.mns_timer_events[ i ].te_trigger_time_ms = 0;
+            MnFireTimerEvent( i );
+        }
+    }
+}
+
+#endif
+
 void MnLoadState()
 {
-    g_state.mns_bpm = 120;
+    g_state.mns_bpm_times_10 = 1200;
 
     // Set default gate length for drum tracks to 
     for ( uint8_t t = 0; t < NUM_TRIGGERS; t++ )
@@ -574,7 +635,7 @@ int8_t MnPadToTrack( uint8_t const kPadValue )
 
 void MnUpdateState( unsigned long kMillis )
 {
-    uint8_t const kStep = g_state.getStep();
+    uint8_t const kStep = g_rs.getStep();
 
     g_device.clearScreen();
 
@@ -633,9 +694,17 @@ void MnUpdateState( unsigned long kMillis )
     //
     // Blink start if we're running
     //
-    if ( g_state.mns_running && ( g_state.mns_beat & 3 ) )
+    if ( g_rs.rs_running )
     {
-        g_device.setButtonLED( OVERKILL_START_BUTTON, LIVID_COLOR_OFF );  // start
+        if  ( g_rs.getStep() & 3 ) 
+        {
+            g_device.setButtonLED( OVERKILL_START_BUTTON, LIVID_COLOR_OFF );  // start
+            g_device.setButtonLED( LIVID_ENCODER20, LIVID_COLOR_OFF );
+        }
+        else
+        {
+            g_device.setButtonLED( LIVID_ENCODER20, LIVID_COLOR_GREEN );
+        }
     }
 
     //
@@ -782,7 +851,7 @@ void MnUpdateState( unsigned long kMillis )
 
 void MnCheckSequence( unsigned long const kMicrosPer32nd )
 {
-    if ( !g_state.mns_running )
+    if ( !g_rs.rs_running )
        return;
 
     unsigned long const kNow = micros();
@@ -792,27 +861,27 @@ void MnCheckSequence( unsigned long const kMicrosPer32nd )
 
     // If this is the first time, fill in the time and return.  This means
     // there will be a one beat delay between pressing play and actually playing
-    if ( g_state.mns_last_beat_time == 0 )
+    if ( g_rs.rs_last_beat_time == 0 )
     {
-        g_state.mns_last_beat_time = kNow;
+        g_rs.rs_last_beat_time = kNow;
         return;
     }
 
-    long int const kDeltaTime = kNow - g_state.mns_last_beat_time;
+    long int const kDeltaTime = kNow - g_rs.rs_last_beat_time;
 
     // If we've now advanced into the next beat, flag it
     bool const kIsNewBeat = kDeltaTime > (kMicrosPer32nd*2)-20;
 
     if ( kIsNewBeat )
     {
-        g_state.mns_beat++;
-        g_state.mns_last_beat_time = kNow;
+        g_rs.rs_beat++;
+        g_rs.rs_last_beat_time = kNow;
 
-        sprintf( dbg_buffer, "[%08ld] Step %d\n", kNowMS, g_state.getStep() );
+        sprintf( dbg_buffer, "[%08ld] Step %d\n", kNowMS, g_rs.getStep() );
         DEBUG( dbg_buffer );
     }
 
-    uint8_t const kStep = g_state.getStep();
+    uint8_t const kStep = g_rs.getStep();
 
     // Step over all the tracks and see if we have to do anything
     for ( uint8_t track = 0; track < NUM_TRACKS; track++ )
@@ -852,8 +921,8 @@ void MnCheckSequence( unsigned long const kMicrosPer32nd )
             // See if we have to trigger gate on
             if ( kGate && kIsNewBeat && kTrack.isStepEnabled( kStep ) )
             {
-
                 // Already a note on?
+                // TODO: Only turn off note if it's the same as this one!
                 if ( g_state.isTrackNoteOn( track ) )
                 {
                     MIDI_noteOff( kCV0, 0x40, MIDI_EXT );
@@ -878,13 +947,13 @@ void MnCheckSequence( unsigned long const kMicrosPer32nd )
 void MnStartSequencer()
 {
     DEBUG( "Start\n" );
-    g_state.mns_running = 1;
+    g_rs.rs_running = 1;
     digitalWrite(PIN_LED,HIGH);
 }
 
 void MnStopSequencer()
 {
-    g_state.mns_running = 0;
+    g_rs.rs_running = 0;
     digitalWrite(PIN_LED,LOW);
 
     // Send all notes off
@@ -895,8 +964,7 @@ void MnResetSequencer()
 {
     DEBUG( "Reset\n" );
     MnStopSequencer();
-    g_state.mns_beat = 0;
-
+    g_rs.rs_beat = 0;
 }
 
 void MnHandleMessage( uint8_t const _msg[3] )
@@ -912,11 +980,11 @@ void MnHandleMessage( uint8_t const _msg[3] )
     // Always make sure global button state is valid
     if ( msg[ 0 ] == MIDI_NOTE_ON )
     {
-        g_state.setButtonState( msg[ 1 ], 1 );
+        g_rs.setButtonState( msg[ 1 ], 1 );
     }
     else if ( msg[ 0 ] == MIDI_NOTE_OFF )
     {
-        g_state.setButtonState( msg[ 1 ], 0 );
+        g_rs.setButtonState( msg[ 1 ], 0 );
 
         if ( msg[ 1 ] == OVERKILL_SHIFT_BUTTON )
         {
@@ -989,15 +1057,25 @@ void MnHandleMessage( uint8_t const _msg[3] )
     }
 
     // BPM dial
-    if ( msg[ 0 ] == MIDI_CC && msg[ 1 ] == LIVID_ROTARY00 )
+    if ( msg[ 0 ] == MIDI_CC && msg[ 1 ] == LIVID_ENCODER20 )
     {
-        short int bpm = msg[ 2 ];
+        int8_t dV = msg[ 2 ] == 1 ? 1 : -1;
 
-        bpm *= 3;
-        bpm >>= 1;
-        bpm += 30;
+        g_state.mns_bpm_times_10 += dV * ( g_rs.getButtonState( LIVID_ENCODER20 ) ? 1 : 10 );
 
-        g_state.mns_bpm = static_cast<uint8_t>(bpm);
+        if ( g_state.mns_bpm_times_10 < 300 )
+            g_state.mns_bpm_times_10 = 300;
+        else if ( g_state.mns_bpm_times_10 > 2500 )
+            g_state.mns_bpm_times_10 = 2500;
+
+        char buffer[ 32 ];
+        sprintf( buffer, "BPM: %d.%d", g_state.mns_bpm_times_10/10, g_state.mns_bpm_times_10%10);
+
+        lcd.clear();
+        lcd.home();
+        lcd.print( buffer );
+
+        g_rs.rs_lcd_restore_time = millis() + 2000;
     }
 
     if ( msg[ 0 ] == MIDI_CC )
@@ -1070,7 +1148,7 @@ void MnHandleMessage( uint8_t const _msg[3] )
             g_state.mns_mode = MODE_TRACK_SELECT;
             break;
         case OVERKILL_START_BUTTON:
-            g_state.mns_running = !g_state.mns_running;
+            g_rs.rs_running = !g_rs.rs_running;
             break;
         case OVERKILL_RESET_BUTTON:
             MnResetSequencer();
@@ -1334,7 +1412,7 @@ void MnReconnectUSB()
 
     DEBUG("success!\n" );
 
-    g_state.mns_usb_connected = 1;
+    g_rs.rs_usb_connected = 1;
     MnInitCNTRLR();
 
     // Clear back and front buffers to alternate values which will force an update
@@ -1349,7 +1427,7 @@ void MnCheckUSB()
     static long s_last_check_time;
     long const kNow = millis();
 
-    if ( !g_state.mns_usb_connected )
+    if ( !g_rs.rs_usb_connected )
     {
         MnReconnectUSB();
         return;
@@ -1379,10 +1457,10 @@ void MnCheckUSB()
     }
     else
     {
-        if ( g_state.mns_usb_connected )
+        if ( g_rs.rs_usb_connected )
         {
             DEBUG("USB connection lost!\n" );
-            g_state.mns_usb_connected = 0;
+            g_rs.rs_usb_connected = 0;
         }
 
         if ( kNow - s_last_check_time > 1000 )
@@ -1395,52 +1473,162 @@ void MnCheckUSB()
     s_last_check_time = kNow;
 }
 
+void MnUpdateLCD()
+{
+    char clockbuf[ 32 ];
+    char const *clock_src[] = { "Int", "Ext", "MIDI" };
+
+    sprintf( clockbuf, "Clock: %s", clock_src[ g_rs.rs_temp_clock_source ] );
+
+    lcd.clear();
+
+    if ( g_rs.rs_main_menu == MENU_SPLASH )
+    {
+        lcd.print( "Modular Overkill 0.01" );
+    }
+    else if ( g_rs.rs_main_menu == MENU_CLOCK_SOURCE )
+    {
+        lcd.print( clockbuf );
+    }
+    else if ( g_rs.rs_main_menu == MENU_TRACK_CONFIG )
+    {
+        if ( g_rs.rs_temp_track_select == -1 )
+        {
+            lcd.print( "Track Config" );
+        }
+        else
+        {
+            char trackbuf[ 32 ];
+
+            sprintf( trackbuf, "Track %d: A01", ( int ) g_rs.rs_temp_track_select );
+
+            lcd.print( trackbuf );
+        }
+    }
+
+    // Update LCD cursor
+    if ( g_rs.rs_is_editing_config )
+    {
+        lcd.blink();
+        lcd.cursor();
+
+        if ( g_rs.rs_main_menu == MENU_CLOCK_SOURCE )
+        {
+            lcd.setCursor( 7, 0 );
+        }
+    }
+    else 
+    {
+        lcd.noBlink(); 
+        lcd.noCursor();
+    }
+}
+
+void MnDoBackButton()
+{
+    g_rs.rs_is_editing_config = false;
+    g_rs.rs_temp_track_select = -1;
+    g_rs.rs_main_menu = MENU_SPLASH;
+
+    // Update our state
+    MnUpdateLCD();
+}
+
+void MnDoEncoderPush()
+{
+    if ( g_rs.rs_main_menu == MENU_CLOCK_SOURCE )
+    {
+        // Switch in/out of edit mode
+        g_rs.rs_is_editing_config = !g_rs.rs_is_editing_config;
+
+        // Entering edit mode, initialize our encoder
+        if ( g_rs.rs_is_editing_config )
+        {
+            g_encoder = g_state.mns_clock_source;
+            g_last_encoder = g_encoder;
+        }
+        // Exiting edit mode, store value
+        else
+        {
+            g_state.mns_clock_source = ( ClockSource_t ) g_rs.rs_temp_clock_source;
+        }
+    }
+    else if ( g_rs.rs_main_menu == MENU_TRACK_CONFIG )
+    {
+        // If we're not editing, then start editing
+        if ( g_rs.rs_temp_track_select == -1 )
+        {
+            g_rs.rs_temp_track_select = 0;
+            g_encoder = 0;
+            g_last_encoder = g_encoder;
+        }
+        // Start editing track parameter
+        else
+        {
+        }
+    }
+
+    // Update our state
+    MnUpdateLCD();
+}
+
+void MnDoEncoder( uint8_t v )
+{
+    if ( ( g_rs.rs_is_editing_config ) && 
+         ( g_rs.rs_main_menu == MENU_CLOCK_SOURCE ) )
+    {
+        g_rs.rs_temp_clock_source = v % CLOCK_MENU_LAST;
+    }
+    else if ( !g_rs.rs_is_editing_config )
+    {
+        g_rs.rs_main_menu = ( MainMenu_t ) ( (v>>2) % MENU_LAST );
+    }
+
+    MnUpdateLCD();
+}
+
 void MnCheckLocalControls()
 {
-    bool was_down = g_state.mns_encoder_down;
+    long const kNow = millis();
 
-    g_state.mns_encoder_down = !digitalRead( PIN_ENCODER_BUTTON );
-
-    if ( !g_state.mns_encoder_down && was_down )
+    // Encoder push button
     {
-        sprintf( dbg_buffer, "Click [%ld]\n", millis() );
+        bool was_down = g_rs.rs_encoder_down;
+
+        g_rs.rs_encoder_down = !digitalRead( PIN_ENCODER_BUTTON );
+
+        if ( !g_rs.rs_encoder_down && was_down )
+        {
+            MnDoEncoderPush();
+        }
+    }
+
+    // Back button
+    {
+        bool was_down = g_rs.rs_back_down;
+
+        g_rs.rs_back_down = !digitalRead( PIN_BACK_BUTTON );
+
+        if ( !g_rs.rs_back_down && was_down )
+        {
+            MnDoBackButton();
+        }
+    }
+
+    // Rotation
+    if ( g_encoder != g_last_encoder )
+    {
+        MnDoEncoder( g_encoder );
+        g_last_encoder = g_encoder;
+        sprintf( dbg_buffer, "enc %d\n", g_encoder );
         DEBUG( dbg_buffer );
     }
 
-    sprintf( dbg_buffer, "Enc %d [%ld]\n", g_encoder, millis() );
-    DEBUG( dbg_buffer );
-
-    delay(100);
-}
-
-void MnFireTimerEvent( uint8_t const kIndex )
-{
-    MnTimerEvent &kEvent = g_state.mns_timer_events[ kIndex ];
-
-    switch ( kEvent.te_type )
+    // Time to restore LCD?
+    if ( g_rs.rs_lcd_restore_time && g_rs.rs_lcd_restore_time < kNow )
     {
-    case TET_MIDI_NOTE_OFF:
-        MIDI_noteOff( kEvent.te_param0, 0, MIDI_EXT );
-        break;
-    case TET_ANALOG_LOW:
-        digitalWrite( kEvent.te_param0, LOW );
-        break;
-    default:
-        break;
-    }
-}
-
-void MnCheckTimers( unsigned long const kNowMS )
-{
-    for ( uint8_t i = 0; i < MAX_TIMER_EVENTS; i++ )
-    {
-        if ( g_state.mns_timer_events[ i ].te_trigger_time_ms == 0 )
-            continue;
-        if ( g_state.mns_timer_events[ i ].te_trigger_time_ms <= kNowMS )
-        {
-            g_state.mns_timer_events[ i ].te_trigger_time_ms = 0;
-            MnFireTimerEvent( i );
-        }
+        MnUpdateLCD();
+        g_rs.rs_lcd_restore_time = 0;
     }
 }
 
@@ -1451,11 +1639,11 @@ int getFreeRAM()
   return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval); 
 }
 
-void updateEncoder()
+void encoderISR()
 {
     static uint8_t last;
 
-    uint8_t now = ( digitalRead( PIN_D20 ) << 1 ) | digitalRead( PIN_D21 );
+    uint8_t now = ( digitalRead( PIN_ROTARY_PIN0 ) << 1 ) | digitalRead( PIN_ROTARY_PIN1 );
 
     //  CW:  0 2 3 1
     //  CCW: 0 1 3 2
@@ -1470,15 +1658,13 @@ void updateEncoder()
     {
         g_encoder--;
     }
-//    g_encoder = now;
-
     last = now;
 }
 
 // the setup routine runs once when you press reset:
 void setup() 
 {
-    lcd.print( "ModOverkill 0.99" );
+    MnUpdateLCD();
 
     MnLoadState();
 
@@ -1490,13 +1676,17 @@ void setup()
     pinMode( PIN_ENCODER_BUTTON, INPUT );
     digitalWrite( PIN_ENCODER_BUTTON, HIGH );
 
-    pinMode( PIN_D20, INPUT );
-    digitalWrite( PIN_D20, HIGH );
-    pinMode( PIN_D21, INPUT );
-    digitalWrite( PIN_D21, HIGH );
+    pinMode( PIN_ROTARY_PIN0, INPUT );
+    digitalWrite( PIN_ROTARY_PIN0, HIGH );
+    pinMode( PIN_ROTARY_PIN1, INPUT );
+    digitalWrite( PIN_ROTARY_PIN1, HIGH );
 
-    attachInterrupt( 2, updateEncoder, CHANGE );
-    attachInterrupt( 3, updateEncoder, CHANGE );
+    pinMode( PIN_BACK_BUTTON, INPUT );
+    digitalWrite( PIN_BACK_BUTTON, HIGH );
+
+    // Interrupt #, not pin, so don't use pin constant!
+    attachInterrupt( 2, encoderISR, CHANGE );
+    attachInterrupt( 3, encoderISR, CHANGE );
   
     for ( unsigned char i = 0; i < NUM_TRIGGERS; i++ )
     {
@@ -1515,17 +1705,26 @@ void setup()
     // This is the MIDI OUT port
     DEBUG( "Initializing MIDI OUT\n" );
     Serial2.begin( 31250 );
+
+    // Config SD library
+    DEBUG("Initialized SD..." );
+    if ( !SD.begin( PIN_SPI_MICROSD ) )
+    {
+       DEBUG( "failed\n" );
+    }
+    else
+    {
+        DEBUG( "success\n" );
+    }
 }
 
 void loop() 
 {
-    unsigned long const kBeatDurationMicros    = 60000000 / g_state.mns_bpm; // 1/4  note
+    unsigned long const kBeatDurationMicros    = 600000000 / g_state.mns_bpm_times_10; // 1/4  note
     unsigned long const kMicrosPerThirtySecond = kBeatDurationMicros >> 3;   // 1/32 note
     unsigned long const kNow = millis();
 
     MnCheckSequence( kMicrosPerThirtySecond );
-
-    MnCheckTimers( kNow );
 
     // Go through all of our state and make sure the LEDs
     // reflect what's going on

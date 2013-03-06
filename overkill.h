@@ -9,9 +9,9 @@
 #define PIN_RX0 0        // programmer (UART0)
 #define PIN_TX0 1        // programmer (UART0)
 
-#define PIN_D2   2       // unused
-#define PIN_D3   3       // unused
-#define PIN_D4   4       // unused
+#define PIN_BACK_BUTTON 2 // back button
+#define PIN_D3          3 // unused
+#define PIN_D4          4 // unused
 
 #define PIN_D5    5      // unused
 #define PIN_D6    6      // unused
@@ -33,8 +33,8 @@
 #define PIN_TX1 18       // USB serial monitor; INTERRUPT 5
 #define PIN_RX1 19       // USB serial monitor; INTERRUPT 4
 
-#define PIN_D20 20       // currently unused; nominally TWI_SDA/INTERRUPT 3
-#define PIN_D21 21       // currently unused; nominally TWI_SCL/INTERRUPT 2
+#define PIN_ROTARY_PIN0 20  // 2-bit gray code; nominally TWI_SDA/INTERRUPT 3
+#define PIN_ROTARY_PIN1 21  // 2-bit gray code; nominally TWI_SCL/INTERRUPT 2
 
 #define PIN_TRIGGER0 22  // trigger output
 #define PIN_TRIGGER1 23  //
@@ -74,7 +74,7 @@
 #define PIN_MEGA_MOSI 51 //
 #define PIN_MEGA_SCK  52 //
 
-#define PIN_USB_SHIELD 53 // USB shield; nominally SPI SS signal (USB shield)
+#define PIN_USB_SHIELD 53 // USB shield; nominally SPI SS signal (USB shield).  Apparently must be left alone for all SPI.
 
 //
 // Current configuration:
@@ -159,3 +159,82 @@
 #define OVERKILL_TRACK_SELECT_BUTTON ( LIVID_SEQ_ROW1 + 13 )
 #define OVERKILL_RESET_BUTTON        ( LIVID_SEQ_ROW1 + 14 )
 #define OVERKILL_START_BUTTON        ( LIVID_SEQ_ROW1 + 15 )
+
+#define OVERKILL_MAGIC_COOKIE      0x07345177
+#define OVERKILL_STATE_VERSION     0x0001
+
+typedef enum 
+{ 
+    MENU_SPLASH, 
+    MENU_TRACK_CONFIG, 
+    MENU_CLOCK_SOURCE, 
+
+    MENU_LAST
+} MainMenu_t;
+
+typedef enum 
+{ 
+    TRACK_MENU_9,
+    TRACK_MENU_10,
+    TRACK_MENU_11,
+    TRACK_MENU_12,
+    TRACK_MENU_13,
+    TRACK_MENU_14,
+    TRACK_MENU_15,
+    TRACK_MENU_16,
+} TrackMenu_t;
+
+typedef enum 
+{ 
+    TRACK_ANALOG0, TRACK_ANALOG1, 
+    TRACK_MIDI_A1,
+    TRACK_MIDI_A2,
+    TRACK_MIDI_A3,
+    TRACK_MIDI_A4,
+    TRACK_MIDI_A5,
+    TRACK_MIDI_A6,
+    TRACK_MIDI_A7,
+    TRACK_MIDI_A8,
+    TRACK_MIDI_A9,
+    TRACK_MIDI_A10,
+    TRACK_MIDI_A11,
+    TRACK_MIDI_A12,
+    TRACK_MIDI_A13,
+    TRACK_MIDI_A14,
+    TRACK_MIDI_A15,
+    TRACK_MIDI_A16,
+    TRACK_MIDI_B1,
+    TRACK_MIDI_B2,
+    TRACK_MIDI_B3,
+    TRACK_MIDI_B4,
+    TRACK_MIDI_B5,
+    TRACK_MIDI_B6,
+    TRACK_MIDI_B7,
+    TRACK_MIDI_B8,
+    TRACK_MIDI_B9,
+    TRACK_MIDI_B10,
+    TRACK_MIDI_B11,
+    TRACK_MIDI_B12,
+    TRACK_MIDI_B13,
+    TRACK_MIDI_B14,
+    TRACK_MIDI_B15,
+    TRACK_MIDI_B16,
+
+    TRACK_LAST
+} TrackConfig_t;
+
+typedef enum 
+{ 
+    CLOCK_MENU_INTERNAL, CLOCK_MENU_EXTERNAL, CLOCK_MENU_MIDI, CLOCK_MENU_LAST
+} ClockSource_t;
+
+/*
+
+SPLASH
+TRACK
+   TRACK9,10,11,12,13,14,15,16
+      DEST
+
+CLOCK
+   INT, EXT, MIDI
+*/
