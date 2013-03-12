@@ -23,6 +23,9 @@
 volatile uint8_t g_encoder;
 volatile uint8_t g_last_encoder;
 
+volatile uint8_t g_encoder_raw;
+volatile uint8_t g_last_encoder_raw;
+
 char  dbg_buffer[ 128 ];
 USB   Usb;
 MIDI  Midi(&Usb);
@@ -33,11 +36,11 @@ File fp_config;
 
 LiquidCrystal lcd( PIN_LCD_RS, PIN_LCD_EN, PIN_LCD_D4, PIN_LCD_D5, PIN_LCD_D6, PIN_LCD_D7 );
 
-void MIDI_noteOn( uint8_t n, uint8_t vel, uint8_t port )
+void MIDI_noteOn( uint8_t n, uint8_t vel, uint8_t port, uint8_t channel )
 {
     uint8_t  buffer[3] =
     {
-        MIDI_NOTE_ON, n, vel
+        MIDI_NOTE_ON|channel, n, vel
     };
 
     if ( port == MIDI_USB )
@@ -53,11 +56,11 @@ void MIDI_noteOn( uint8_t n, uint8_t vel, uint8_t port )
     }
 }
 
-void MIDI_cc( uint8_t n, uint8_t val, uint8_t port )
+void MIDI_cc( uint8_t n, uint8_t val, uint8_t port, uint8_t channel )
 {
     uint8_t buffer[3] =
     {
-        MIDI_CC, n, val
+        MIDI_CC|channel, n, val
     };
 
     if ( port == MIDI_USB )
@@ -72,11 +75,11 @@ void MIDI_cc( uint8_t n, uint8_t val, uint8_t port )
         SENDMIDI_MIDI(buffer,sizeof(buffer));
     }
 }
-void MIDI_noteOff( uint8_t n, uint8_t vel, uint8_t port )
+void MIDI_noteOff( uint8_t n, uint8_t vel, uint8_t port, uint8_t channel )
 {
     uint8_t buffer[3] =
     {
-        MIDI_NOTE_OFF, n, vel
+        MIDI_NOTE_OFF|channel, n, vel
     };
     if ( port == MIDI_USB )
     {
@@ -133,9 +136,9 @@ struct LividCNTRLR
 
                 lc_led_button_frontbuffer[ i ] = b;
                 if ( b )
-                    MIDI_noteOn( i, b, MIDI_USB );
+                    MIDI_noteOn( i, b, MIDI_USB, 0 );
                 else
-                    MIDI_noteOn( i, 0, MIDI_USB ); // we send note on with 0
+                    MIDI_noteOn( i, 0, MIDI_USB, 0 ); // we send note on with 0
             }
         }
 
@@ -147,7 +150,7 @@ struct LividCNTRLR
 
                 lc_led_encoder_frontbuffer[ i ] = b;
 
-                MIDI_cc( i + LIVID_ENCODER00, b, MIDI_USB );
+                MIDI_cc( i + LIVID_ENCODER00, b, MIDI_USB, 0 );
             }
         }
     }
@@ -244,6 +247,7 @@ struct MnTrack
 
     unsigned long   mnt_gate_on_time;  // When did the gate start
     unsigned long   mnt_gate_off_time; // When is the gate supposed to stop
+    uint8_t         mnt_current_note;
 
     MnBitSet16      mnt_step_enabled;
     MnBitSet16      mnt_step_accent;
@@ -391,9 +395,13 @@ struct MnState
     {
         return mns_tracks [ kTrack ].mnt_step_gate[ kStep ];
     }
-    bool isTrackNoteOn( uint8_t const kTrack )
+    uint8_t getTrackNoteOn( uint8_t const kTrack )
     {
-        return mns_tracks [ kTrack ].mnt_gate_off_time > 0;
+        if ( mns_tracks [ kTrack ].mnt_gate_off_time > 0 )
+        {
+            return mns_tracks[ kTrack ].mnt_current_note;
+        }
+        return 0;
     }
     uint8_t getTrackCV0( uint8_t const kTrack, uint8_t const kStep )
     {
@@ -633,6 +641,26 @@ int8_t MnPadToTrack( uint8_t const kPadValue )
     return -1;
 }
 
+int8_t MnTrackToPad( uint8_t const kTrackValue )
+{
+    switch ( kTrackValue )
+    {
+    case 0:return LIVID_PAD00;
+    case 1:return LIVID_PAD01;
+    case 2:return LIVID_PAD02;
+    case 3:return LIVID_PAD03;
+    case 4:return LIVID_PAD10;
+    case 5:return LIVID_PAD11;
+    case 6:return LIVID_PAD12;
+    case 7:return LIVID_PAD13;
+    case 8:return LIVID_PAD20;
+    case 9:return LIVID_PAD21;
+    case 10:return LIVID_PAD22;
+    case 11:return LIVID_PAD23;
+    }
+    return 0;
+}
+
 void MnUpdateState( unsigned long kMillis )
 {
     uint8_t const kStep = g_rs.getStep();
@@ -712,6 +740,9 @@ void MnUpdateState( unsigned long kMillis )
     //
     if ( g_state.mns_editing_cv0 )
     {
+        int8_t current_octave = g_state.mns_cv0_value/12;
+        int8_t current_key = g_state.mns_cv0_value%12;
+
         g_device.setButtonLED( LIVID_SEQ_ROW0 + 0, LIVID_COLOR_WHITE );
         g_device.setButtonLED( LIVID_SEQ_ROW0 + 1, LIVID_COLOR_OFF );
         g_device.setButtonLED( LIVID_SEQ_ROW0 + 2, LIVID_COLOR_WHITE );
@@ -726,8 +757,11 @@ void MnUpdateState( unsigned long kMillis )
         g_device.setButtonLED( LIVID_SEQ_ROW0 + 11, LIVID_COLOR_WHITE );
         g_device.setButtonLED( LIVID_SEQ_ROW0 + 12, LIVID_COLOR_WHITE );
 
-        // Show active one
+        // Show key
+        g_device.setButtonLED( LIVID_SEQ_ROW0 + current_key, LIVID_COLOR_YELLOW );
+
         // Show octave
+        g_device.setButtonLED( MnTrackToPad( current_octave ), LIVID_COLOR_YELLOW );
     }
     else if ( g_state.mns_editing_gate || g_state.mns_editing_cv1 || g_state.mns_editing_cv2 )
     {
@@ -765,7 +799,7 @@ void MnUpdateState( unsigned long kMillis )
         {
             if ( g_state.trackHasAnyData( i ) )
             {
-                if ( g_state.isTrackNoteOn( i ) )
+                if ( g_state.getTrackNoteOn( i ) )
                 {
                     g_device.setButtonLED( g_device.trackToPad( i ), LIVID_COLOR_MAGENTA );
                 }
@@ -792,7 +826,7 @@ void MnUpdateState( unsigned long kMillis )
                 if ( g_state.trackHasAnyData( i ) )
                 {
                     // If track is active
-                    if ( g_state.isTrackNoteOn( i ) )
+                    if ( g_state.getTrackNoteOn( i ) )
                     {
                         if ( i == g_state.mns_active_track )
                             color = LIVID_COLOR_CYAN;
@@ -877,8 +911,8 @@ void MnCheckSequence( unsigned long const kMicrosPer32nd )
         g_rs.rs_beat++;
         g_rs.rs_last_beat_time = kNow;
 
-        sprintf( dbg_buffer, "[%08ld] Step %d\n", kNowMS, g_rs.getStep() );
-        DEBUG( dbg_buffer );
+//        sprintf( dbg_buffer, "[%08ld] Step %d\n", kNowMS, g_rs.getStep() );
+//        DEBUG( dbg_buffer );
     }
 
     uint8_t const kStep = g_rs.getStep();
@@ -921,24 +955,27 @@ void MnCheckSequence( unsigned long const kMicrosPer32nd )
             // See if we have to trigger gate on
             if ( kGate && kIsNewBeat && kTrack.isStepEnabled( kStep ) )
             {
+                uint8_t curnote = g_state.getTrackNoteOn( track );
+
                 // Already a note on?
-                // TODO: Only turn off note if it's the same as this one!
-                if ( g_state.isTrackNoteOn( track ) )
+                if ( curnote )
                 {
-                    MIDI_noteOff( kCV0, 0x40, MIDI_EXT );
+                    MIDI_noteOn( curnote, 0x0, MIDI_EXT, 0  ); //TODO: Add channel here
                 }
 
-                MIDI_noteOn( kCV0, 0x40, MIDI_EXT );
-                MIDI_cc( 14, kCV1, MIDI_EXT );
-                MIDI_cc( 15, kCV2, MIDI_EXT );
+                MIDI_noteOn( kCV0, 0x40, MIDI_EXT, 0 ); //TODO: Add channel here
+                MIDI_cc( 14, kCV1, MIDI_EXT, 0 ); //TODO: Add channel here
+                MIDI_cc( 15, kCV2, MIDI_EXT, 0 ); //TODO: Add channel here
                 kTrack.mnt_gate_on_time = kNowMS;
                 kTrack.mnt_gate_off_time = kNowMS + kGateDurationMS;
+                kTrack.mnt_current_note = kCV0;
             }
             // Time to gate off?
             else if ( kTrack.mnt_gate_off_time > 0 && kTrack.mnt_gate_off_time < kNowMS )
             {
-                MIDI_noteOff( kCV0, 0x40, MIDI_EXT );
+                MIDI_noteOff( kTrack.mnt_current_note, 0, MIDI_EXT, 0 ); // TODO: Add channel here
                 kTrack.mnt_gate_off_time = kTrack.mnt_gate_on_time = 0;
+                kTrack.mnt_current_note = 0;
             }
         }
     }
@@ -957,7 +994,7 @@ void MnStopSequencer()
     digitalWrite(PIN_LED,LOW);
 
     // Send all notes off
-    MIDI_cc( 123, 0, MIDI_EXT );
+    MIDI_cc( 123, 0, MIDI_EXT, 0 );
 }
 
 void MnResetSequencer()
@@ -1159,13 +1196,32 @@ void MnHandleMessage( uint8_t const _msg[3] )
 
         if ( g_state.mns_mode == MODE_TRACK_SELECT )
         {
+            // TODO: If we're editing pitch then use this to select an octave
             if ( msg[ 1 ] >= LIVID_PAD00 && msg[ 1 ] <= LIVID_PAD33 )
             {
-                int const kTrack = MnPadToTrack( msg[ 1 ] );
-
-                if ( kTrack >= 0 )
+                if ( g_state.mns_editing_cv0 )
                 {
-                    g_state.mns_active_track = kTrack;
+                    int8_t current_key = g_state.mns_cv0_value%12;
+                    int8_t octave = MnPadToTrack( msg[ 1 ] );
+                    if ( octave > 10 )
+                        octave = 10;
+
+                    int8_t new_value = octave * 12 + current_key;
+
+                    sprintf(dbg_buffer,"Selected key %d\n", new_value );
+                    DEBUG(dbg_buffer);
+
+                    g_state.mns_cv0_value = new_value;
+                    g_state.editCV0( g_state.mns_cv0_value );
+                }
+                else
+                {
+                    int const kTrack = MnPadToTrack( msg[ 1 ] );
+
+                    if ( kTrack >= 0 )
+                    {
+                        g_state.mns_active_track = kTrack;
+                    }
                 }
             }
         }
@@ -1186,23 +1242,38 @@ void MnHandleMessage( uint8_t const _msg[3] )
         {
             int8_t const kEditStep = msg[ 1 ] - LIVID_SEQ_ROW0;
 
-            if ( g_state.mns_step_mode == MODE_STEP_EDIT )
+            // TODO: If we're editing pitch then use this to select a note
+            if ( g_state.mns_editing_cv0 )
             {
+                int8_t current_octave = g_state.mns_cv0_value/12;
+                int8_t new_value = current_octave * 12 + kEditStep;
 
-                g_state.mns_is_editing_step[ kEditStep ] = !g_state.isEditingStep( kEditStep );
+                sprintf(dbg_buffer,"Selected key %d\n", new_value );
+                DEBUG(dbg_buffer);
 
-                // If we just enabled it we need grab its values
-                if ( g_state.isEditingStep( kEditStep ) )
-                {
-                    g_state.mns_gate_value = g_state.getTrackGate( g_state.mns_active_track, kEditStep );
-                    g_state.mns_cv2_value  = g_state.getTrackCV2( g_state.mns_active_track, kEditStep );
-                    g_state.mns_cv0_value  = g_state.getTrackCV0( g_state.mns_active_track, kEditStep );
-                    g_state.mns_cv1_value  = g_state.getTrackCV1( g_state.mns_active_track, kEditStep );
-                }
+                g_state.mns_cv0_value = new_value;
+                g_state.editCV0( g_state.mns_cv0_value );
             }
-            else if ( g_state.mns_step_mode == MODE_STEP_MUTE )
+            else
             {
-                g_state.toggleBeat( g_state.mns_active_track, kEditStep );
+
+                if ( g_state.mns_step_mode == MODE_STEP_EDIT )
+                {
+                    g_state.mns_is_editing_step[ kEditStep ] = !g_state.isEditingStep( kEditStep );
+
+                    // If we just enabled it we need grab its values
+                    if ( g_state.isEditingStep( kEditStep ) )
+                    {
+                        g_state.mns_gate_value = g_state.getTrackGate( g_state.mns_active_track, kEditStep );
+                        g_state.mns_cv2_value  = g_state.getTrackCV2( g_state.mns_active_track, kEditStep );
+                        g_state.mns_cv0_value  = g_state.getTrackCV0( g_state.mns_active_track, kEditStep );
+                        g_state.mns_cv1_value  = g_state.getTrackCV1( g_state.mns_active_track, kEditStep );
+                    }
+                }
+                else if ( g_state.mns_step_mode == MODE_STEP_MUTE )
+                {
+                    g_state.toggleBeat( g_state.mns_active_track, kEditStep );
+                }
             }
         }
     }
@@ -1618,10 +1689,10 @@ void MnCheckLocalControls()
     // Rotation
     if ( g_encoder != g_last_encoder )
     {
-        MnDoEncoder( g_encoder );
         g_last_encoder = g_encoder;
-        sprintf( dbg_buffer, "enc %d\n", g_encoder );
+        sprintf( dbg_buffer, "enc %d / %d\n", g_encoder, g_encoder_raw );
         DEBUG( dbg_buffer );
+        MnDoEncoder( g_encoder );
     }
 
     // Time to restore LCD?
@@ -1645,18 +1716,23 @@ void encoderISR()
 
     uint8_t now = ( digitalRead( PIN_ROTARY_PIN0 ) << 1 ) | digitalRead( PIN_ROTARY_PIN1 );
 
-    //  CW:  0 2 3 1
-    //  CCW: 0 1 3 2
-    if ( ( last == 0 && now == 2 ) ||
-         ( last == 2 && now == 3 ) ||
-         ( last == 3 && now == 1 ) ||
-         ( last == 1 && now == 0 ) )
+    g_encoder_raw = now;
+
+    if ( last != now )
     {
-        g_encoder++;
-    }
-    else if ( last != now )
-    {
-        g_encoder--;
+        //  CW:  0 2 3 1
+        //  CCW: 0 1 3 2
+        if ( ( last == 0 && now == 2 ) ||
+            ( last == 2 && now == 3 ) ||
+            ( last == 3 && now == 1 ) ||
+            ( last == 1 && now == 0 ) )
+        {
+            g_encoder++;
+        }
+        else if ( last != now )
+        {
+            g_encoder--;
+        }
     }
     last = now;
 }
@@ -1733,6 +1809,12 @@ void loop()
     MnCheckLocalControls();
 
     MnCheckUSB();
+/*
+    MIDI_noteOn( 0x40, 0x40, MIDI_EXT, 0  ); //TODO: Add channel here
+    delay(500);
+    MIDI_noteOn( 0x40, 0x0, MIDI_EXT, 0  ); //TODO: Add channel here
+    delay(5000);
+*/
 
     g_device.swapBuffers();
 }
