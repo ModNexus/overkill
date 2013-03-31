@@ -9,9 +9,9 @@
 #define PIN_RX0 0        // programmer (UART0)
 #define PIN_TX0 1        // programmer (UART0)
 
-#define PIN_BACK_BUTTON 2 // back button
-#define PIN_D3          3 // unused
-#define PIN_D4          4 // unused
+#define PIN_D2  2 // unused
+#define PIN_D3  3 // unused
+#define PIN_D4  4 // unused
 
 #define PIN_D5    5      // unused
 #define PIN_D6    6      // unused
@@ -21,7 +21,7 @@
 #define PIN_USB_SHIELD_INT 9   // USB host shield
 #define PIN_USB_SHIELD_SS  10  // USB host shield
 
-#define PIN_CLKIN  11    // CLK IN
+#define PIN_D11    11    // unused
 #define PIN_CLKOUT 12    // CLK OUT
 
 #define PIN_LED 13       // LED
@@ -33,8 +33,8 @@
 #define PIN_TX1 18       // USB serial monitor; INTERRUPT 5
 #define PIN_RX1 19       // USB serial monitor; INTERRUPT 4
 
-#define PIN_ROTARY_PIN0 20  // 2-bit gray code; nominally TWI_SDA/INTERRUPT 3
-#define PIN_ROTARY_PIN1 21  // 2-bit gray code; nominally TWI_SCL/INTERRUPT 2
+#define PIN_CLKIN    20  // nominally TWI_SDA/INTERRUPT 3
+#define PIN_D21      21  // nominally TWI_SCL/INTERRUPT 2
 
 #define PIN_TRIGGER0 22  // trigger output
 #define PIN_TRIGGER1 23  //
@@ -68,7 +68,7 @@
 #define PIN_SPI_CV6   47 //
 #define PIN_SPI_CV7   48 //
 
-#define PIN_ENCODER_BUTTON 49
+#define PIN_D49 49
 
 #define PIN_MEGA_MISO 50 // SPI control pins
 #define PIN_MEGA_MOSI 51 //
@@ -76,42 +76,16 @@
 
 #define PIN_USB_SHIELD 53 // USB shield; nominally SPI SS signal (USB shield).  Apparently must be left alone for all SPI.
 
-//
-// Current configuration:
-//
-// 8 drum tracks
-// 1 CV track (gate,X/Y/Z)
-// 3 MIDI tracks
-//
-#define NUM_TRACKS         12
+#define NUM_TRACKS          8
 #define NUM_STEPS          16
 #define NUM_TRIGGERS        8
-#define NUM_REALTIME_CV     8
-#define NUM_SEQUENCED_CV    3
+#define NUM_MIDI_TRACKS     0
 
+#ifdef REMOVE_THIS
 #define TET_USB_NOTE_OFF      0
 #define TET_MIDI_NOTE_OFF     1
 #define TET_ANALOG_LOW        2
-
-#define MAX_TIMER_EVENTS 32
-
-#define MODE_TRACK_SELECT 0
-#define MODE_TRACK_MUTE   1
-
-#define MODE_STEP_MUTE 0
-#define MODE_STEP_EDIT 1
-
-#define MODE_SELECT_INACTIVE 0
-#define MODE_SELECT_ACTIVE   1
-
-#define MODE_SHIFT_SELECT_ALL      0
-#define MODE_SHIFT_SELECT_NONE     1
-
-#define MODE_EDIT_NONE   0
-#define MODE_EDIT_GATE   1
-#define MODE_EDIT_PITCH  2
-#define MODE_EDIT_CV0    3
-#define MODE_EDIT_CV1    4
+#endif
 
 // Channel Voice messages
 #define MIDI_NOTE_OFF 0x80    // key, vel
@@ -141,100 +115,17 @@
 #define MIDI_RESET  0xFF
 
 // Control mappings
-#define OVERKILL_SHIFT_BUTTON        ( LIVID_SEQ_ROW1 + 0 )
-#define OVERKILL_SELECT_BUTTON       ( LIVID_SEQ_ROW1 + 1 )
-#define OVERKILL_EDIT_STEP_BUTTON    ( LIVID_SEQ_ROW1 + 2 )
-#define OVERKILL_RANGE_SELECT_BUTTON ( LIVID_SEQ_ROW1 + 3 )
-
-#define OVERKILL_GATE_BUTTON      ( LIVID_SEQ_ROW1 + 4 )
-#define OVERKILL_CV0_BUTTON       ( LIVID_SEQ_ROW1 + 5 )
-#define OVERKILL_CV1_BUTTON       ( LIVID_SEQ_ROW1 + 6 )
-#define OVERKILL_CV2_BUTTON       ( LIVID_SEQ_ROW1 + 7 )
-
-#define OVERKILL_ALL_OFF_BUTTON        ( LIVID_SEQ_ROW1 + 8 )
-#define OVERKILL_COPY_PASTE_BUTTON     ( LIVID_SEQ_ROW1 + 10 )
-#define OVERKILL_SELECT_PATTERN_BUTTON ( LIVID_SEQ_ROW1 + 11 )
-
-#define OVERKILL_TRACK_MUTE_BUTTON   ( LIVID_SEQ_ROW1 + 12 )
-#define OVERKILL_TRACK_SELECT_BUTTON ( LIVID_SEQ_ROW1 + 13 )
-#define OVERKILL_RESET_BUTTON        ( LIVID_SEQ_ROW1 + 14 )
-#define OVERKILL_START_BUTTON        ( LIVID_SEQ_ROW1 + 15 )
+#define OVERKILL_START_BUTTON        ( LIVID_F1 )
+#define OVERKILL_RESET_BUTTON        ( LIVID_F2 )
+#define OVERKILL_BPM_BUTTON          ( LIVID_F3 )
+#define OVERKILL_PATTERN_COPY        ( LIVID_F4 )
+#define OVERKILL_PATTERN_PASTE       ( LIVID_F5 )
+#define OVERKILL_TRACK_MUTE_BUTTON   ( LIVID_F8 )
 
 #define OVERKILL_MAGIC_COOKIE      0x07345177
 #define OVERKILL_STATE_VERSION     0x0001
 
 typedef enum 
 { 
-    MENU_SPLASH, 
-    MENU_TRACK_CONFIG, 
-    MENU_CLOCK_SOURCE, 
-
-    MENU_LAST
-} MainMenu_t;
-
-typedef enum 
-{ 
-    TRACK_MENU_9,
-    TRACK_MENU_10,
-    TRACK_MENU_11,
-    TRACK_MENU_12,
-    TRACK_MENU_13,
-    TRACK_MENU_14,
-    TRACK_MENU_15,
-    TRACK_MENU_16,
-} TrackMenu_t;
-
-typedef enum 
-{ 
-    TRACK_ANALOG0, TRACK_ANALOG1, 
-    TRACK_MIDI_A1,
-    TRACK_MIDI_A2,
-    TRACK_MIDI_A3,
-    TRACK_MIDI_A4,
-    TRACK_MIDI_A5,
-    TRACK_MIDI_A6,
-    TRACK_MIDI_A7,
-    TRACK_MIDI_A8,
-    TRACK_MIDI_A9,
-    TRACK_MIDI_A10,
-    TRACK_MIDI_A11,
-    TRACK_MIDI_A12,
-    TRACK_MIDI_A13,
-    TRACK_MIDI_A14,
-    TRACK_MIDI_A15,
-    TRACK_MIDI_A16,
-    TRACK_MIDI_B1,
-    TRACK_MIDI_B2,
-    TRACK_MIDI_B3,
-    TRACK_MIDI_B4,
-    TRACK_MIDI_B5,
-    TRACK_MIDI_B6,
-    TRACK_MIDI_B7,
-    TRACK_MIDI_B8,
-    TRACK_MIDI_B9,
-    TRACK_MIDI_B10,
-    TRACK_MIDI_B11,
-    TRACK_MIDI_B12,
-    TRACK_MIDI_B13,
-    TRACK_MIDI_B14,
-    TRACK_MIDI_B15,
-    TRACK_MIDI_B16,
-
-    TRACK_LAST
-} TrackConfig_t;
-
-typedef enum 
-{ 
-    CLOCK_MENU_INTERNAL, CLOCK_MENU_EXTERNAL, CLOCK_MENU_MIDI, CLOCK_MENU_LAST
+    CLOCK_MENU_INTERNAL, CLOCK_MENU_EXTERNAL
 } ClockSource_t;
-
-/*
-
-SPLASH
-TRACK
-   TRACK9,10,11,12,13,14,15,16
-      DEST
-
-CLOCK
-   INT, EXT, MIDI
-*/
