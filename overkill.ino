@@ -23,8 +23,6 @@ volatile unsigned int g_clock;
 
 File fp_config;
 
-#define MIDI_INTERVAL 2
-
 void MIDI_noteOn( uint8_t n, uint8_t vel, uint8_t port, uint8_t channel )
 {
     uint8_t  buffer[3] =
@@ -35,7 +33,8 @@ void MIDI_noteOn( uint8_t n, uint8_t vel, uint8_t port, uint8_t channel )
     if ( port == MIDI_USB )
     {
         SENDMIDI_USB(buffer);
-        delay(1);
+//        sprintf( dbg_buffer, "[%08lu] Note on  0x%02x,0x%02x\n", millis(), (int)n,(int)vel );
+//        DEBUG( dbg_buffer );
     }
     else
     {
@@ -55,7 +54,7 @@ void MIDI_cc( uint8_t n, uint8_t val, uint8_t port, uint8_t channel )
     if ( port == MIDI_USB )
     {
         SENDMIDI_USB(buffer);
-        delay(1);
+//        delay(1);
 //        sprintf( dbg_buffer, "[%08lu] CC 0x%x 0x%x\n", millis(), (int)n,(int)val );
 //        DEBUG( dbg_buffer );
     }
@@ -73,7 +72,7 @@ void MIDI_noteOff( uint8_t n, uint8_t vel, uint8_t port, uint8_t channel )
     if ( port == MIDI_USB )
     {
         SENDMIDI_USB(buffer);
-        delay(1);
+//        delay(1);
     }
     else
     {
@@ -85,19 +84,82 @@ void MIDI_noteOff( uint8_t n, uint8_t vel, uint8_t port, uint8_t channel )
 
 struct LividBASE
 {
-    int8_t lb_led_button_backbuffer[ 32 ];
+    int8_t lb_led_button_backbuffer[ 76 ];
+    int8_t lb_led_button_frontbuffer[ 76 ];
+
+    int8_t ccToFaderIndex( int8_t const kCC )
+    {
+        switch ( kCC )
+        {
+        case LIVID_FADER0:
+        case LIVID_FADER1:
+        case LIVID_FADER2:
+        case LIVID_FADER3:
+        case LIVID_FADER4:
+        case LIVID_FADER5:
+        case LIVID_FADER6:
+        case LIVID_FADER7:
+        case LIVID_FADER8:
+            return kCC - LIVID_FADER0;
+        }
+        return 0;
+    }
 
     void resetBuffers( void )
     {
-        memset( lb_led_button_backbuffer, 0, sizeof( lb_led_button_backbuffer ) );
+        // Set buffers opposite so we force a clear
+        memset( lb_led_button_backbuffer, LIVID_COLOR_WHITE, sizeof( lb_led_button_backbuffer ) );
+        memset( lb_led_button_frontbuffer, 0xFF, sizeof( lb_led_button_frontbuffer ) );
+/*
+        const char c[] =
+        {
+            LIVID_COLOR_OFF,
+            LIVID_COLOR_WHITE,
+            LIVID_COLOR_RED,
+            LIVID_COLOR_BLUE,
+            LIVID_COLOR_GREEN,
+            LIVID_COLOR_CYAN,
+            LIVID_COLOR_MAGENTA,
+            LIVID_COLOR_YELLOW
+        };
+        for ( int i = 1; i < 76; i++ )
+        {
+            MIDI_noteOn( i, c[i&7], MIDI_USB, 0 );
+        }
+*/
+    }
+    int8_t stepToPad( int8_t const kStep )
+    {
+        if ( kStep < 8 )
+        {
+            return LIVID_PAD00 + kStep;
+        }
+        else if ( kStep < 16 )
+        {
+            return LIVID_PAD10 + kStep - 8;
+        }
+        else if ( kStep < 24 )
+        {
+            return LIVID_PAD20 + kStep - 16;
+        }
+        return LIVID_PAD30 + kStep - 24;
     }
     void clearScreen( void )
     {
+        memset( lb_led_button_backbuffer, 0, sizeof( lb_led_button_backbuffer ) );
     }
     void swapBuffers( void )
     {
+        for ( int i = 1; i < 76; i++ )
+        {
+            if ( lb_led_button_backbuffer[ i ] != lb_led_button_frontbuffer[ i ] )
+            {
+                MIDI_noteOn( i, lb_led_button_backbuffer[ i ], MIDI_USB, 0 );
+            }
+            lb_led_button_frontbuffer[ i ] = lb_led_button_backbuffer[ i ];
+        }
     }
-    void setButtonLED( uint8_t const kWhich, int8_t const kCC )
+    void setLED( uint8_t const kWhich, int8_t const kCC )
     {
         lb_led_button_backbuffer[ kWhich ] = kCC;
     }
@@ -293,6 +355,7 @@ struct MnRunningState
     // fader stuff
     //
     int8_t rs_fader_state[ 9 ];
+
     int8_t getFaderState( int8_t const kFaderIndex )
     {
         return rs_fader_state[ kFaderIndex ];
@@ -305,7 +368,7 @@ struct MnRunningState
     //
     // button stuff
     //
-    uint8_t rs_button_state[ 8 ]; // Assumes up to 64 buttons (CNTRL:R has almost that many)
+    uint8_t rs_button_state[ 10 ]; // Assumes up to 80, BASE has 76
     uint8_t getButtonState( uint8_t const kControlNumber )
     {
         uint8_t const kByteVal = kControlNumber >> 3;
@@ -613,56 +676,83 @@ void MnUpdateState( unsigned long kMillis )
 #endif
 
     //
-    // Blink start if we're running
+    // Draw start button
     //
+    g_device.setLED( OVERKILL_START_BUTTON, LIVID_COLOR_GREEN );
     if ( g_rs.rs_running )
     {
-        if  ( g_rs.getStep() & 3 ) 
+        if  ( ( g_rs.getStep() & 3 ) == 0 )
         {
-            g_device.setButtonLED( OVERKILL_START_BUTTON, LIVID_COLOR_OFF );  // start
+            g_device.setLED( LIVID_F1_LED, LIVID_COLOR_GREEN );
+        }
+    }
+    //
+    // Draw BPM button
+    //
+    g_device.setLED( OVERKILL_BPM_BUTTON, LIVID_COLOR_BLUE );
+    if ( g_rs.rs_running )
+    {
+        if  ( ( g_rs.getStep() & 3 ) == 0 )
+        {
+            g_device.setLED( LIVID_F3_LED, LIVID_COLOR_BLUE );
+        }
+    }
+    //
+    // Draw mute button
+    //
+    g_device.setLED( OVERKILL_TRACK_MUTE_BUTTON, LIVID_COLOR_RED );
+
+    //
+    // Draw pads
+    //
+    for ( int i = 0; i < NUM_STEPS; i++ )
+    {
+        if ( g_state.isTrackStepEnabled( g_state.mns_active_track, i ) )
+        {
+            g_device.setLED( g_device.stepToPad( i ), LIVID_COLOR_GREEN );
         }
     }
 
     //
-    // Draw mute state
+    // Draw track buttons
     //
-
-    //
-    // Draw 4x8
-    //
-
-    // Draw note on/off in the track buttons
     {
-        // Any tracks with data should be in yellow and blink if active beat
         for ( uint8_t i = 0; i < NUM_TRACKS; i++ )
         {
-            if ( g_state.trackHasAnyData( i ) )
-            {
-                if ( g_state.getTrackNoteOn( i ) )
-                {
-                    g_device.setButtonLED( LIVID_TRACK_BUTTON0 + i, LIVID_COLOR_MAGENTA );
-                }
-                else
-                {
-                    g_device.setButtonLED( LIVID_TRACK_BUTTON0 + i, LIVID_COLOR_WHITE );
-                }
-            }
-        }
+            int8_t color = LIVID_COLOR_OFF;
 
-        g_device.setButtonLED( LIVID_TRACK_BUTTON0 + g_state.mns_active_track, LIVID_COLOR_BLUE );
+            if ( g_state.mns_active_track == i )
+            {
+                color = LIVID_COLOR_GREEN;
+            }
+            else if ( g_state.mns_tracks[ i ].mnt_track_muted )
+            {
+                color = LIVID_COLOR_RED;
+            }
+            else if ( g_state.isTrackStepEnabled( i, g_rs.getStep() ) )
+            {
+                sprintf(dbg_buffer,"track %d has gate @ step %d\n", (int)i, (int)g_rs.getStep()) ;
+                DEBUG(dbg_buffer);
+                color = LIVID_COLOR_CYAN;
+            }
+            else if ( g_state.trackHasAnyData( i ) )
+            {
+                color = LIVID_COLOR_BLUE;
+            }
+
+            g_device.setLED( LIVID_TRACK_BUTTON0 + i, color );
+        }
     }
 
     //
     // Update sequencer
     //
+    for ( uint8_t step = 0; step < NUM_STEPS; step++ )
     {
-        for ( uint8_t step = 0; step < NUM_STEPS; step++ )
+        // Advance our controller's beat
+        if ( step == kStep )
         {
-            // Advance our controller's beat
-            if ( step == kStep )
-            {
-                g_device.setButtonLED( kStep + LIVID_PAD00, LIVID_COLOR_WHITE );
-            }
+            g_device.setLED( g_device.stepToPad(step), LIVID_COLOR_WHITE );
         }
     }
 }
@@ -818,34 +908,40 @@ void MnHandleMessage( uint8_t const _msg[3] )
     // 
     if ( g_rs.getButtonState( OVERKILL_BPM_BUTTON ) )
     {
-        int8_t dV = msg[ 2 ] == 1 ? 1 : -1;
+        uint16_t bpm = g_state.mns_bpm_times_10;
 
-        g_state.mns_bpm_times_10 += dV * ( g_rs.getFaderState( LIVID_FADER8 ) ? 1 : 10 );
+        g_state.mns_bpm_times_10 = g_rs.getFaderState( 8 ) * 20 + 300;
 
         if ( g_state.mns_bpm_times_10 < 300 )
             g_state.mns_bpm_times_10 = 300;
         else if ( g_state.mns_bpm_times_10 > 2500 )
             g_state.mns_bpm_times_10 = 2500;
+
+        if ( bpm != g_state.mns_bpm_times_10 )
+        {
+            sprintf( dbg_buffer, "New bpm %d\n", g_state.mns_bpm_times_10/10);
+            DEBUG( dbg_buffer );
+        }
     }
 
     if ( msg[ 0 ] == MIDI_CC )
     {
-/*
-        int8_t const kFaderIndex = g_device.faderIndexFromCC( msg[ 1 ] );
+        int8_t const kFaderIndex = g_device.ccToFaderIndex( msg[ 1 ] );
 
-        if ( kFaderIndex >= 0 )
+        if ( kFaderIndex >= 0 && kFaderIndex < 9 )
         {
-            uint8_t const kValue = msg[ 2 ];
-            MnFaderOut( kFaderIndex, kValue );
+            g_rs.setFaderState( kFaderIndex, msg[ 2 ] );
         }
-*/
     }
     else if ( msg[ 0 ] == MIDI_NOTE_ON )
     {
         switch ( msg[ 1 ] )
         {
         case OVERKILL_START_BUTTON:
-            g_rs.rs_running = !g_rs.rs_running;
+            if ( !g_rs.rs_running )
+                MnStartSequencer();
+            else
+                g_rs.rs_running = false;
             break;
         case OVERKILL_RESET_BUTTON:
             MnResetSequencer();
@@ -872,17 +968,22 @@ void MnHandleMessage( uint8_t const _msg[3] )
             }
         }
 
-        if ( msg[ 1 ] >= LIVID_PAD00 && msg[ 1 ] < LIVID_PAD37 )
+        if ( msg[ 1 ] >= LIVID_PAD00 && msg[ 1 ] <= LIVID_PAD07 )
         {
-            int8_t const kEditStep = msg[ 1 ] - LIVID_PAD00;
-
-            g_state.toggleBeat( g_state.mns_active_track, kEditStep );
+            g_state.toggleBeat( g_state.mns_active_track, msg[ 1 ] - LIVID_PAD00 );
+        }
+        else if ( msg[ 1 ] >= LIVID_PAD10 && msg[ 1 ] <= LIVID_PAD17 )
+        {
+            g_state.toggleBeat( g_state.mns_active_track, msg[ 1 ] + 8 - LIVID_PAD10 );
         }
     }
 }
 
 void MnInitBASE()
 {
+    DEBUG( "Initializing BASE\n" );
+
+    g_rs.setFaderState( 8, ( g_state.mns_bpm_times_10 - 300 ) / 20 );
 }
 
 #ifdef REMOVE_THIS
@@ -1224,12 +1325,6 @@ void loop()
     MnUpdateState( kNow );
 
     MnCheckUSB();
-/*
-    MIDI_noteOn( 0x40, 0x40, MIDI_EXT, 0  ); //TODO: Add channel here
-    delay(500);
-    MIDI_noteOn( 0x40, 0x0, MIDI_EXT, 0  ); //TODO: Add channel here
-    delay(5000);
-*/
 
     g_device.swapBuffers();
 }
