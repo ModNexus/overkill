@@ -2,11 +2,14 @@
 //
 // TODO: SD shield
 // TODO: analog clock input/output/reset
-// TODO: MIDI track support
 // TODO: Num steps per track should be configurable to 32
-// TODO: BPM control (F-button + master fader)
+// TODO: pattern copy
 
+//#define USE_SD 1
+#ifdef USE_SD
 #include <SD.h>
+#endif
+
 #include <avr/pgmspace.h>
 #include <Usb.h>
 #include <usbh_midi.h>
@@ -15,13 +18,13 @@
 
 #define CLAMP(a,b,c) ((a)=min(max(a,b),c))
 
-char  dbg_buffer[ 128 ];
+static char const *OVERKILL_FNAME = "overkill.bin";
+
+char  dbg_buffer[ 1024 ];
 USB   Usb;
 MIDI  Midi(&Usb);
 
 volatile unsigned int g_clock;
-
-File fp_config;
 
 void MIDI_noteOn( uint8_t n, uint8_t vel, uint8_t port, uint8_t channel )
 {
@@ -110,7 +113,7 @@ struct LividBASE
         // Set buffers opposite so we force a clear
         memset( lb_led_button_backbuffer, LIVID_COLOR_WHITE, sizeof( lb_led_button_backbuffer ) );
         memset( lb_led_button_frontbuffer, 0xFF, sizeof( lb_led_button_frontbuffer ) );
-/*
+
         const char c[] =
         {
             LIVID_COLOR_OFF,
@@ -126,7 +129,7 @@ struct LividBASE
         {
             MIDI_noteOn( i, c[i&7], MIDI_USB, 0 );
         }
-*/
+
     }
     int8_t stepToPad( int8_t const kStep )
     {
@@ -165,121 +168,7 @@ struct LividBASE
     }
 };
 
-#ifdef REMOVE_THIS
-struct LividCNTRLR
-{
-    uint8_t lc_led_button_backbuffer[ 60 ];   // These are what we update
-    uint8_t lc_led_button_frontbuffer[ 60 ];  // These are what we're currently showing
-    uint8_t lc_led_encoder_backbuffer[ LIVID_NUM_ENCODERS ];  // These are what we update
-    uint8_t lc_led_encoder_frontbuffer[ LIVID_NUM_ENCODERS ]; // These are what we're currently showing
-
-    void resetBuffers( void )
-    {
-        DEBUG("Resetting buffers\n");
-        memset( &lc_led_button_backbuffer,    0, sizeof( lc_led_button_backbuffer ) );
-        memset( &lc_led_encoder_backbuffer,   0, sizeof( lc_led_encoder_backbuffer ) );
-        memset( &lc_led_button_frontbuffer, 0x1, sizeof( lc_led_button_frontbuffer ) );
-        memset( &lc_led_encoder_frontbuffer, 0x1, sizeof( lc_led_encoder_frontbuffer ) );
-    }
-
-    void clearScreen( void )
-    {
-        memset( &lc_led_button_backbuffer, 0, sizeof( lc_led_button_backbuffer ) );
-        memset( &lc_led_encoder_backbuffer, 0, sizeof( lc_led_encoder_backbuffer ) );
-    }
-
-    void setButtonLED( uint8_t const kWhich, uint8_t const kCC )
-    {
-        lc_led_button_backbuffer[ kWhich ] = kCC;
-    }
-    void setEncoderLED( uint8_t const kWhich, uint8_t const kCC )
-    {
-        lc_led_encoder_backbuffer[ kWhich-LIVID_ENCODER00 ] = kCC;
-    }
-
-    void swapBuffers()
-    {
-        // Update buttons
-        for ( uint8_t i = LIVID_PAD00; i <= LIVID_ENCODER23; i++ )
-        {
-            if ( lc_led_button_backbuffer[ i ] != lc_led_button_frontbuffer[ i ] )
-            {
-                uint8_t const b = lc_led_button_backbuffer[ i ];
-
-                lc_led_button_frontbuffer[ i ] = b;
-                if ( b )
-                    MIDI_noteOn( i, b, MIDI_USB, 0 );
-                else
-                    MIDI_noteOn( i, 0, MIDI_USB, 0 ); // we send note on with 0
-            }
-        }
-
-        for ( uint8_t i = 0; i < LIVID_NUM_ENCODERS; i++ )
-        {
-            if ( lc_led_encoder_backbuffer[ i ] != lc_led_encoder_frontbuffer[ i ] )
-            {
-                uint8_t b = lc_led_encoder_backbuffer[ i ];
-
-                lc_led_encoder_frontbuffer[ i ] = b;
-
-                MIDI_cc( i + LIVID_ENCODER00, b, MIDI_USB, 0 );
-            }
-        }
-    }
-
-    uint8_t trackToPad( uint8_t const kTrack )
-    {
-        switch ( kTrack )
-        {
-        case 0: return LIVID_PAD00;
-        case 1: return LIVID_PAD01;
-        case 2: return LIVID_PAD02;
-        case 3: return LIVID_PAD03;
-        case 4: return LIVID_PAD10;
-        case 5: return LIVID_PAD11;
-        case 6: return LIVID_PAD12;
-        case 7: return LIVID_PAD13;
-        case 8: return LIVID_PAD20;
-        case 9: return LIVID_PAD21;
-        case 10: return LIVID_PAD22;
-        case 11: return LIVID_PAD23;
-        case 12: return LIVID_PAD30;
-        case 13: return LIVID_PAD31;
-        case 14: return LIVID_PAD32;
-        case 15: return LIVID_PAD33;
-        }
-        return 0;
-    }
-
-    int8_t faderIndexFromCC( uint8_t const kCC )
-    {
-        switch ( kCC )
-        {
-        case LIVID_FADER0: return 0; break;
-        case LIVID_FADER1: return 1; break;
-        case LIVID_FADER2: return 2; break;
-        case LIVID_FADER3: return 3; break;
-        case LIVID_FADER4: return 4; break;
-        case LIVID_FADER5: return 5; break;
-        case LIVID_FADER6: return 6; break;
-        case LIVID_FADER7: return 7; break;
-        default:
-            break;
-        }
-        return -1;
-    }
-};
-#endif
-
 LividBASE g_device;
-
-struct MnTimerEvent
-{
-    uint8_t       te_type;
-    unsigned long te_trigger_time_ms;
-    uint8_t       te_param0;
-    uint8_t       te_param1;
-};
 
 struct MnBitSet16
 {
@@ -435,6 +324,11 @@ struct MnState
         return false;
     }
 
+    bool isTrackMuted( uint8_t const kTrack )
+    {
+        return mns_tracks[ kTrack ].mnt_track_muted;
+    }
+
     // Returns value irrespective of mute
     uint8_t getTrackGate( uint8_t const kTrack, uint8_t const kStep )
     {
@@ -493,12 +387,49 @@ struct MnState
     // Set sane default track values
     MnState() : mns_cookie( OVERKILL_MAGIC_COOKIE ), mns_version( OVERKILL_STATE_VERSION )
     {
+        mns_bpm_times_10 = 1200;
+
+        // Set default gate length for drum tracks to 
+        for ( uint8_t t = 0; t < NUM_TRIGGERS; t++ )
+        {
+            for ( uint8_t s = 0; s < NUM_STEPS; s++ )
+            {
+                setTrackGate( t, s, 1 ); // 1/32nd note
+            }
+        }
+
+        // Set default gate length for pitch tracks to 1/4 note
+        for ( uint8_t t = 8; t < NUM_TRACKS; t++ )
+        {
+            for ( uint8_t s = 0; s < NUM_STEPS; s++ )
+            {
+                setTrackGate( t, s, 1 ); // 1/4 note
+            }
+        }
+
+        // Set default pitch
+        for ( uint8_t t = 8; t < NUM_TRACKS; t++ )
+        {
+            for ( uint8_t s = 0; s < NUM_STEPS; s++ )
+            {
+                setTrackCV0( t, s, 0x3C ); // 1/4 note
+            }
+        }
+
     }
 };
 
 MnState g_state;
 
 #if 0
+struct MnTimerEvent
+{
+    uint8_t       te_type;
+    unsigned long te_trigger_time_ms;
+    uint8_t       te_param0;
+    uint8_t       te_param1;
+};
+
 //
 // Timer stuff
 //
@@ -586,94 +517,54 @@ void MnCheckTimers( unsigned long const kNowMS )
 
 void MnLoadState()
 {
-    g_state.mns_bpm_times_10 = 1200;
+    DEBUG("Loading state\n" );
 
-    // Set default gate length for drum tracks to 
-    for ( uint8_t t = 0; t < NUM_TRIGGERS; t++ )
+#ifdef USE_SD
+    g_state = MnState();
+
+    File fp = SD.open( OVERKILL_FNAME, FILE_READ );
+
+    if ( fp )
     {
-        for ( uint8_t s = 0; s < NUM_STEPS; s++ )
+        DEBUG("Found data file, using\n" );
+
+        MnState old_state;
+        memset( &old_state, 0, sizeof( old_state ) );
+        fp.read( &old_state, sizeof( old_state ) );
+        fp.close();
+
+        if ( old_state.mns_cookie == OVERKILL_MAGIC_COOKIE &&
+            old_state.mns_version == OVERKILL_STATE_VERSION )
         {
-            g_state.setTrackGate( t, s, 1 ); // 1/32nd note
+            DEBUG("Valid data found!\n" );
+            g_state = old_state;
         }
     }
-
-    // Set default gate length for pitch tracks to 1/4 note
-    for ( uint8_t t = 8; t < NUM_TRACKS; t++ )
-    {
-        for ( uint8_t s = 0; s < NUM_STEPS; s++ )
-        {
-            g_state.setTrackGate( t, s, 1 ); // 1/4 note
-        }
-    }
-
-    // Set default pitch
-    for ( uint8_t t = 8; t < NUM_TRACKS; t++ )
-    {
-        for ( uint8_t s = 0; s < NUM_STEPS; s++ )
-        {
-            g_state.setTrackCV0( t, s, 0x3C ); // 1/4 note
-        }
-    }
+#endif
 }
 
 void MnSaveState()
 {
+    DEBUG("Saving state\n" );
+
+#ifdef USE_SD
     // Save patterns to SD
+    File fp = SD.open( OVERKILL_FNAME, FILE_WRITE );
+
+    if ( fp )
+    {
+        fp.write( reinterpret_cast<uint8_t const *>(&g_state), sizeof( g_state ) );
+        fp.close();
+    }
+#endif
 }
 
 void MnUpdateState( unsigned long kMillis )
 {
     uint8_t const kStep = g_rs.getStep();
+    bool const kShiftSystem = g_rs.getButtonState( OVERKILL_SHIFT_SYSTEM_BUTTON );
 
     g_device.clearScreen();
-
-#ifdef REMOVE_THIS
-    //
-    // Render control row
-    //
-    g_device.setButtonLED( OVERKILL_SHIFT_BUTTON, LIVID_COLOR_OFF  ); // shift key
-    g_device.setButtonLED( OVERKILL_SELECT_BUTTON, LIVID_COLOR_CYAN ); // active/!active, shift = sel all/none
-
-    if ( g_state.mns_step_mode == MODE_STEP_EDIT )
-        g_device.setButtonLED( OVERKILL_EDIT_STEP_BUTTON, LIVID_COLOR_RED ); // edit vs. select
-    else
-        g_device.setButtonLED( OVERKILL_EDIT_STEP_BUTTON, LIVID_COLOR_CYAN ); // edit vs. select
-
-    g_device.setButtonLED( OVERKILL_RANGE_SELECT_BUTTON, LIVID_COLOR_CYAN ); // range select
-
-    g_device.setButtonLED( OVERKILL_GATE_BUTTON, LIVID_COLOR_GREEN ); // gate
-    g_device.setButtonLED( OVERKILL_CV0_BUTTON, LIVID_COLOR_GREEN ); // pitch
-    g_device.setButtonLED( OVERKILL_CV1_BUTTON, LIVID_COLOR_GREEN ); // CV0
-    g_device.setButtonLED( OVERKILL_CV2_BUTTON, LIVID_COLOR_GREEN ); // CV1
-
-    g_device.setButtonLED( OVERKILL_ALL_OFF_BUTTON, LIVID_COLOR_BLUE );        // all off
-    g_device.setButtonLED( LIVID_SEQ_ROW1 + 9, LIVID_COLOR_BLUE );      // (unused)
-    g_device.setButtonLED( OVERKILL_COPY_PASTE_BUTTON, LIVID_COLOR_BLUE );     // copy/paste
-    g_device.setButtonLED( OVERKILL_SELECT_PATTERN_BUTTON, LIVID_COLOR_BLUE ); // pattern select
-
-    if ( g_state.mns_mode == MODE_TRACK_SELECT )
-    {
-        g_device.setButtonLED( OVERKILL_TRACK_MUTE_BUTTON, LIVID_COLOR_OFF ); // track select
-        g_device.setButtonLED( OVERKILL_TRACK_SELECT_BUTTON, LIVID_COLOR_YELLOW ); // track mute
-    }
-    else
-    {
-        g_device.setButtonLED( OVERKILL_TRACK_MUTE_BUTTON, LIVID_COLOR_YELLOW ); // track select
-        g_device.setButtonLED( OVERKILL_TRACK_SELECT_BUTTON, LIVID_COLOR_OFF ); // track mute
-    }
-
-    g_device.setButtonLED( OVERKILL_RESET_BUTTON, LIVID_COLOR_MAGENTA ); // track select
-    g_device.setButtonLED( OVERKILL_START_BUTTON, LIVID_COLOR_MAGENTA ); // track select
-
-    // Update encoder
-    if ( g_state.isEditingAnyStep() )
-    {
-        g_device.setButtonLED( LIVID_ENCODER00, 1 );
-        g_device.setButtonLED( LIVID_ENCODER01, 1 );
-        g_device.setButtonLED( LIVID_ENCODER02, 1 );
-        g_device.setButtonLED( LIVID_ENCODER03, 1 );
-    }
-#endif
 
     //
     // Draw start button
@@ -697,10 +588,12 @@ void MnUpdateState( unsigned long kMillis )
             g_device.setLED( LIVID_F3_LED, LIVID_COLOR_BLUE );
         }
     }
+
     //
-    // Draw mute button
+    // Draw buttons
     //
     g_device.setLED( OVERKILL_TRACK_MUTE_BUTTON, LIVID_COLOR_RED );
+    g_device.setLED( OVERKILL_SHIFT_SYSTEM_BUTTON, LIVID_COLOR_YELLOW );
 
     //
     // Draw pads
@@ -716,31 +609,33 @@ void MnUpdateState( unsigned long kMillis )
     //
     // Draw track buttons
     //
+    for ( uint8_t i = 0; i < NUM_TRACKS; i++ )
     {
-        for ( uint8_t i = 0; i < NUM_TRACKS; i++ )
+        int8_t color = LIVID_COLOR_OFF;
+
+        if ( g_state.mns_active_track == i )
         {
-            int8_t color = LIVID_COLOR_OFF;
+            color = LIVID_COLOR_GREEN;
+        }
+        else if ( g_state.isTrackStepEnabled( i, g_rs.getStep() ) )
+        {
+//            sprintf(dbg_buffer,"track %d has gate @ step %d\n", (int)i, (int)g_rs.getStep()) ;
+//            DEBUG(dbg_buffer);
+            color = LIVID_COLOR_CYAN;
+        }
+        else if ( g_state.trackHasAnyData( i ) )
+        {
+            color = LIVID_COLOR_BLUE;
+        }
 
-            if ( g_state.mns_active_track == i )
-            {
-                color = LIVID_COLOR_GREEN;
-            }
-            else if ( g_state.mns_tracks[ i ].mnt_track_muted )
-            {
-                color = LIVID_COLOR_RED;
-            }
-            else if ( g_state.isTrackStepEnabled( i, g_rs.getStep() ) )
-            {
-                sprintf(dbg_buffer,"track %d has gate @ step %d\n", (int)i, (int)g_rs.getStep()) ;
-                DEBUG(dbg_buffer);
-                color = LIVID_COLOR_CYAN;
-            }
-            else if ( g_state.trackHasAnyData( i ) )
-            {
-                color = LIVID_COLOR_BLUE;
-            }
-
-            g_device.setLED( LIVID_TRACK_BUTTON0 + i, color );
+        g_device.setLED( LIVID_TRACK_BUTTON0 + i, color );
+        if ( g_state.isTrackMuted( i ) )
+        {
+            g_device.setLED( LIVID_TRACK_BUTTON0_LED + i, LIVID_COLOR_RED );
+        }
+        else
+        {
+            g_device.setLED( LIVID_TRACK_BUTTON0_LED + i, LIVID_COLOR_YELLOW );
         }
     }
 
@@ -754,6 +649,15 @@ void MnUpdateState( unsigned long kMillis )
         {
             g_device.setLED( g_device.stepToPad(step), LIVID_COLOR_WHITE );
         }
+    }
+
+    //
+    // Draw system buttons
+    //
+    if ( kShiftSystem )
+    {
+        g_device.setLED( OVERKILL_SYSTEM_SAVE_BUTTON, LIVID_COLOR_GREEN ); // save
+        g_device.setLED( OVERKILL_SYSTEM_LOAD_BUTTON, LIVID_COLOR_RED );   // load
     }
 }
 
@@ -784,9 +688,6 @@ void MnCheckSequence( unsigned long const kMicrosPer32nd )
     {
         g_rs.rs_beat++;
         g_rs.rs_last_beat_time = kNow;
-
-//        sprintf( dbg_buffer, "[%08ld] Step %d\n", kNowMS, g_rs.getStep() );
-//        DEBUG( dbg_buffer );
     }
 
     uint8_t const kStep = g_rs.getStep();
@@ -810,7 +711,8 @@ void MnCheckSequence( unsigned long const kMicrosPer32nd )
             // See if we have to trigger gate on
             if ( kGate && kIsNewBeat && kTrack.isStepEnabled( kStep ) )
             {
-                DEBUG("Pin high\n" );
+                sprintf( dbg_buffer, "Pin %d high\n", (int)track );
+                DEBUG( dbg_buffer );
                 digitalWrite( PIN_TRIGGER0 + track, HIGH );
                 kTrack.mnt_gate_on_time = kNowMS;
                 kTrack.mnt_gate_off_time = kNowMS + kGateDurationMS;
@@ -818,12 +720,14 @@ void MnCheckSequence( unsigned long const kMicrosPer32nd )
             // Time to gate off?
             else if ( kTrack.mnt_gate_off_time > 0 && kTrack.mnt_gate_off_time < kNowMS )
             {
-                DEBUG("Pin low\n" );
+                sprintf( dbg_buffer, "Pin %d low\n", (int)track );
+                DEBUG( dbg_buffer );
                 digitalWrite( PIN_TRIGGER0 + track, LOW );
                 kTrack.mnt_gate_off_time = kTrack.mnt_gate_on_time = 0;
             }
         }
         // Tracks 8+ are MIDI or CV
+#if 0
         else
         {
             // See if we have to trigger gate on
@@ -852,6 +756,7 @@ void MnCheckSequence( unsigned long const kMicrosPer32nd )
                 kTrack.mnt_current_note = 0;
             }
         }
+#endif
     }
 }
 
@@ -866,9 +771,6 @@ void MnStopSequencer()
 {
     g_rs.rs_running = 0;
     digitalWrite(PIN_LED,LOW);
-
-    // Send all notes off
-    MIDI_cc( 123, 0, MIDI_EXT, 0 );
 }
 
 void MnResetSequencer()
@@ -935,24 +837,21 @@ void MnHandleMessage( uint8_t const _msg[3] )
     }
     else if ( msg[ 0 ] == MIDI_NOTE_ON )
     {
-        switch ( msg[ 1 ] )
+        bool const kShiftMute = g_rs.getButtonState( OVERKILL_TRACK_MUTE_BUTTON ) != 0;
+        bool const kShiftSystem = g_rs.getButtonState( OVERKILL_SHIFT_SYSTEM_BUTTON ) != 0;
+        if ( msg[ 1 ] == OVERKILL_START_BUTTON )
         {
-        case OVERKILL_START_BUTTON:
             if ( !g_rs.rs_running )
                 MnStartSequencer();
             else
                 g_rs.rs_running = false;
-            break;
-        case OVERKILL_RESET_BUTTON:
-            MnResetSequencer();
-            break;
-        default:
-            break;
         }
-
-        if ( msg[ 1 ] >= LIVID_TRACK_BUTTON0 && msg[ 1 ] <= LIVID_TRACK_BUTTON7 )
+        else if ( msg[ 1 ] == OVERKILL_RESET_BUTTON )
         {
-            bool const kShiftMute = g_rs.getButtonState( OVERKILL_TRACK_MUTE_BUTTON ) != 0;
+            MnResetSequencer();
+        }
+        else if ( msg[ 1 ] >= LIVID_TRACK_BUTTON0 && msg[ 1 ] <= LIVID_TRACK_BUTTON7 )
+        {
             int const kTrack = msg[ 1 ] - LIVID_TRACK_BUTTON0;
 
             if ( kTrack >= 0 )
@@ -960,6 +859,8 @@ void MnHandleMessage( uint8_t const _msg[3] )
                 if ( kShiftMute )
                 {
                     g_state.mns_tracks[ kTrack ].mnt_track_muted = !g_state.mns_tracks[ kTrack ].mnt_track_muted;
+                    sprintf( dbg_buffer, "track %d mute %d\n", kTrack, ( int ) g_state.mns_tracks[ kTrack ].mnt_track_muted );
+                    DEBUG( dbg_buffer );
                 }
                 else
                 {
@@ -967,7 +868,6 @@ void MnHandleMessage( uint8_t const _msg[3] )
                 }
             }
         }
-
         if ( msg[ 1 ] >= LIVID_PAD00 && msg[ 1 ] <= LIVID_PAD07 )
         {
             g_state.toggleBeat( g_state.mns_active_track, msg[ 1 ] - LIVID_PAD00 );
@@ -975,6 +875,14 @@ void MnHandleMessage( uint8_t const _msg[3] )
         else if ( msg[ 1 ] >= LIVID_PAD10 && msg[ 1 ] <= LIVID_PAD17 )
         {
             g_state.toggleBeat( g_state.mns_active_track, msg[ 1 ] + 8 - LIVID_PAD10 );
+        }
+        else if ( kShiftSystem && msg[ 1 ] == OVERKILL_SYSTEM_SAVE_BUTTON )
+        {
+            MnSaveState();
+        }
+        else if ( kShiftSystem && msg[ 1 ] == OVERKILL_SYSTEM_LOAD_BUTTON )
+        {
+            MnLoadState();
         }
     }
 }
@@ -984,6 +892,9 @@ void MnInitBASE()
     DEBUG( "Initializing BASE\n" );
 
     g_rs.setFaderState( 8, ( g_state.mns_bpm_times_10 - 300 ) / 20 );
+
+    // Disable local control
+//    MIDI_cc( 122, 65, MIDI_USB, 15 );
 }
 
 #ifdef REMOVE_THIS
@@ -1217,6 +1128,11 @@ void MnCheckUSB()
 
     if ( Usb.getUsbTaskState() == USB_STATE_RUNNING )
     {
+        if ( ( kNow & 1023 ) == 0 )
+        {
+            DEBUG( "USB running\n" );
+        }
+
         byte msgs[ 64 ];
         memset( msgs, 0, sizeof( msgs ) );
         uint16_t bytes_received = 0;
@@ -1268,8 +1184,6 @@ void clockInISR()
 // the setup routine runs once when you press reset:
 void setup() 
 {
-    MnLoadState();
-
     // initialize the LED pin
     pinMode( PIN_LED, OUTPUT);
     digitalWrite( PIN_LED,HIGH);
@@ -1297,11 +1211,14 @@ void setup()
     DEBUG( dbg_buffer );
 
     // This is the MIDI OUT port
+#if 0
     DEBUG( "Initializing MIDI OUT\n" );
     Serial2.begin( 31250 );
+#endif
 
     // Config SD library
-    DEBUG("Initialized SD..." );
+#ifdef USE_SD
+    DEBUG("Initializing SD..." );
     if ( !SD.begin( PIN_SPI_MICROSD ) )
     {
        DEBUG( "failed\n" );
@@ -1310,6 +1227,9 @@ void setup()
     {
         DEBUG( "success\n" );
     }
+#endif
+
+    MnLoadState();
 }
 
 void loop() 
@@ -1327,4 +1247,9 @@ void loop()
     MnCheckUSB();
 
     g_device.swapBuffers();
+
+    if ( ( kNow & 1023 ) == 0 )
+    {
+        DEBUG("Swap!\n");
+    }
 }
